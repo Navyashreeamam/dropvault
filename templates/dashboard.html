@@ -1,0 +1,61 @@
+<!-- templates/dashboard.html -->
+<h1>Dashboard - {{ email }}</h1>
+
+<!-- Upload Form -->
+<form id="uploadForm" enctype="multipart/form-data">
+  {% csrf_token %}
+  <input type="file" name="file" required>
+  <button type="submit">Upload File</button>
+</form>
+
+<!-- File List -->
+<h2>Your Files</h2>
+<ul id="fileList"></ul>
+<button onclick="loadFiles()">Refresh Files</button>
+
+<!-- Trash Button -->
+<a href="/files/trash/">View Trash</a>
+
+<script>
+// Upload file
+document.getElementById('uploadForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const res = await fetch('/files/upload/', {
+    method: 'POST',
+    body: formData,
+    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+  });
+  if (res.ok) {
+    alert('Uploaded!');
+    loadFiles();
+  } else {
+    alert('Upload failed');
+  }
+};
+
+// Load files
+async function loadFiles() {
+  const res = await fetch('/files/list/');
+  const files = await res.json();
+  document.getElementById('fileList').innerHTML = 
+    files.map(f => 
+      `<li>${f.original_name} 
+        <button onclick="deleteFile(${f.id})">Delete</button>
+      </li>`
+    ).join('');
+}
+
+// Delete file
+async function deleteFile(id) {
+  if (!confirm('Delete?')) return;
+  await fetch(`/files/delete/${id}/`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+  });
+  loadFiles();
+}
+
+// Load on start
+loadFiles();
+</script>
