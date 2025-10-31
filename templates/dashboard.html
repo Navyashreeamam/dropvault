@@ -30,7 +30,8 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
     alert('Uploaded!');
     loadFiles();
   } else {
-    alert('Upload failed');
+    const err = await res.json();
+    alert('Upload failed: ' + (err.error || 'Unknown error'));
   }
 };
 
@@ -40,20 +41,39 @@ async function loadFiles() {
   const files = await res.json();
   document.getElementById('fileList').innerHTML = 
     files.map(f => 
-      `<li>${f.original_name} 
+      `<li>
+        ${f.original_name} 
         <button onclick="deleteFile(${f.id})">Delete</button>
-      </li>`
+        <button onclick="shareFile(${f.id})">Share</button>
+       </li>`
     ).join('');
 }
 
 // Delete file
 async function deleteFile(id) {
-  if (!confirm('Delete?')) return;
+  if (!confirm('Delete this file?')) return;
   await fetch(`/files/delete/${id}/`, {
     method: 'POST',
     headers: { 'X-CSRFToken': '{{ csrf_token }}' }
   });
   loadFiles();
+}
+
+// Share file
+async function shareFile(fileId) {
+  const res = await fetch(`/files/share/${fileId}/`, {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': '{{ csrf_token }}',  // ✅ Use template tag, not getCookie
+      'Accept': 'application/json'
+    }
+  });
+  const data = await res.json();
+  if (res.ok) {
+    prompt('Copy your secure share link:', data.url);
+  } else {
+    alert('Failed to create share link.');
+  }
 }
 
 // Load on start
