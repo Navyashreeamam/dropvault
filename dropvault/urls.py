@@ -1,11 +1,11 @@
-# dropvaluet/urls.py
+# dropvault/urls.py
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView  # ← ADD THIS
+from django.views.generic import TemplateView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
     path('files/', include('files.urls')),
-    path('', RedirectView.as_view(url='/accounts/')),  # ← ROOT ROUTE
+    path('', TemplateView.as_view(template_name='home.html'), name='home'),  # ← name='home'
 ]

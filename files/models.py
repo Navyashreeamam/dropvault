@@ -1,4 +1,3 @@
-# files/models.py
 from django.db import models
 from django.contrib.auth.models import User
 import uuid
@@ -13,14 +12,15 @@ def user_upload_path(instance, filename):
 class File(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, db_index=True)
     file = models.FileField(upload_to=user_upload_path)
-    original_name = models.CharField(max_length=255)  # User-facing name
-    size = models.PositiveBigIntegerField()            # Bytes
+    original_name = models.CharField(max_length=255)
+    size = models.PositiveBigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
     deleted = models.BooleanField(default=False, db_index=True)
+    sha256 = models.CharField(max_length=64, db_index=True)
 
     class Meta:
         indexes = [
-            models.Index(fields=['user', 'deleted']),  # Fast user file lookup
+            models.Index(fields=['user', 'deleted']),
         ]
 
 class Trash(models.Model):

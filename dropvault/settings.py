@@ -41,9 +41,13 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'navyashreeamam@gmail.com'
-EMAIL_HOST_PASSWORD = 'swrlqcgokqsvvjqv'  # ← Replace with your actual 16-char app password (no extra quotes)
+EMAIL_HOST_PASSWORD = 'zypmrcvxqpxvqudv'  # ← Replace with your actual 16-char app password (no extra quotes)
 DEFAULT_FROM_EMAIL = 'navyashreeamam@gmail.com'
+EMAIL_USE_SSL = False  # Add this
+EMAIL_TIMEOUT = 10  # Add this
 
+# For debugging
+EMAIL_DEBUG = True  # Add this temporarily
 
 # Application definition
 
