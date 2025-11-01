@@ -12,6 +12,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from .models import UserProfile, LoginAttempt
 from .utils import verify_token
+from django.template.loader import render_to_string
 
 def test_email(request):
     """Test email configuration"""
@@ -27,8 +28,8 @@ def test_email(request):
     except Exception as e:
         return HttpResponse(f"Email failed: {str(e)}")
 
+
 def send_verification_email(user):
-    """Send verification email with better error handling"""
     try:
         token = secrets.token_urlsafe(32)
         user.userprofile.verification_token = token
@@ -36,57 +37,17 @@ def send_verification_email(user):
         
         link = f"http://127.0.0.1:8000/accounts/verify-email/?token={token}"
         
-        subject = "Verify your DropVault email"
+        # Render email content from templates
+        text_content = render_to_string('verification_email.txt', {'link': link})
+        html_content = render_to_string('verification_email.html', {'link': link})
         
-        # Plain text message
-        text_message = f"""
-        Welcome to DropVault!
-        
-        Please click the link below to verify your email address:
-        {link}
-        
-        If you didn't create an account, please ignore this email.
-        
-        Best regards,
-        DropVault Team
-        """
-        
-        # HTML message
-        html_message = f"""
-        <html>
-            <body style="font-family: Arial, sans-serif; padding: 20px;">
-                <div style="max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 30px; border-radius: 10px;">
-                    <h2 style="color: #667eea;">Welcome to DropVault!</h2>
-                    <p>Thank you for signing up. Please verify your email address to get started.</p>
-                    <p style="margin: 30px 0;">
-                        <a href="{link}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                           color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; 
-                           display: inline-block;">
-                            Verify Email Address
-                        </a>
-                    </p>
-                    <p style="color: #666; font-size: 14px;">
-                        If the button doesn't work, copy and paste this link into your browser:
-                        <br>
-                        <a href="{link}" style="color: #667eea;">{link}</a>
-                    </p>
-                    <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-                    <p style="color: #999; font-size: 12px;">
-                        If you didn't create an account with DropVault, please ignore this email.
-                    </p>
-                </div>
-            </body>
-        </html>
-        """
-        
-        # Create email with both plain text and HTML versions
         email = EmailMultiAlternatives(
-            subject=subject,
-            body=text_message,
+            subject="Verify your DropVault email",
+            body=text_content,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email]
         )
-        email.attach_alternative(html_message, "text/html")
+        email.attach_alternative(html_content, "text/html")
         email.send(fail_silently=False)
         
         print(f"✅ Verification email sent successfully to {user.email}")

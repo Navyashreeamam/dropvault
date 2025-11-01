@@ -1,0 +1,9 @@
+Welcome to DropVault!
+
+Please click the link below to verify your email address:
+{{ link }}
+
+If you didn't create an account, please ignore this email.
+
+Best regards,
+DropVault Team
