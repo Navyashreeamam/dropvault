@@ -20,9 +20,13 @@ class File(models.Model):
     file = models.FileField(upload_to=user_upload_path)
     original_name = models.CharField(max_length=255)
     size = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64)
     uploaded_at = models.DateTimeField(auto_now_add=True)
     deleted = models.BooleanField(default=False, db_index=True)
-    sha256 = models.CharField(max_length=64, db_index=True)
+
+    ##sha256 = models.CharField(max_length=64, db_index=True)
+    # NEW FIELDS FOR ENCRYPTION
+    encryption_meta = models.TextField(default='[]')  # ← ADD default
 
     class Meta:
         indexes = [
