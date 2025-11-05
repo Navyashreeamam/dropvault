@@ -6,6 +6,7 @@ from files import sharingviews
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/', include('allauth.urls')),
     path('accounts/', include('accounts.urls')),
     path('files/', include('files.urls')),
     path('', TemplateView.as_view(template_name='home.html'), name='home'),  # ← name='home'

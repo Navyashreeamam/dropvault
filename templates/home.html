@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DropVault - Secure File Storage</title>
+    {% load socialaccount %}
     <style>
         * {
             margin: 0;
@@ -150,6 +151,7 @@
         <div class="btn-group">
             <a href="{% url 'signup' %}" class="btn btn-primary">Sign Up</a>
             <a href="{% url 'login' %}" class="btn btn-secondary">Login</a>
+            <a href="{% provider_login_url 'google' %}">Login with Google</a>
         </div>
     </div>
 </body>
