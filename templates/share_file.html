@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Share {{ file.original_name }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        .share-form { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+        input[type="email"] { width: 60%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        select { padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #5568d3; }
+        .shares-list { margin-top: 30px; }
+        .share-item { background: white; padding: 15px; margin-bottom: 10px; border: 1px solid #eee; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .role-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .viewer { background: #e3f2fd; color: #1976d2; }
+        .editor { background: #fff3e0; color: #f57c00; }
+        .revoke-btn { background: #f44336; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .message { padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .link-section { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+        .link-btn { background: #4caf50; }
+        .link-btn:hover { background: #45a049; }
+    </style>
+</head>
+<body>
+    <h2>Share: {{ file.original_name }}</h2>
+    
+    {% if messages %}
+        {% for message in messages %}
+            <div class="message {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    
+    <!-- 🔗 Public Link Section -->
+    <div class="link-section">
+        <h3>Get a link</h3>
+        <p>Anyone with the link can view and download (5 downloads max, expires in 24h).</p>
+        <button type="button" class="link-btn" onclick="createLink({{ file.id }})">Copy Link</button>
+    </div>
+
+    <!-- 📧 Email Sharing Section -->
+    <div class="share-form">
+        <h3>Share with specific people</h3>
+        <form method="post">
+            {% csrf_token %}
+            <input type="email" name="email" placeholder="Enter email address" required>
+            
+            <select name="role" required>
+                <option value="viewer">Viewer (can view/download)</option>
+                <option value="editor">Editor (can edit/delete)</option>
+            </select>
+            
+            <button type="submit">Share</button>
+        </form>
+    </div>
+    
+    <!-- 👥 Current Shares -->
+    <div class="shares-list">
+        <h3>People with access</h3>
+        
+        <div class="share-item">
+            <div>
+                <strong>{{ file.owner.email }}</strong> (You)
+                <span class="role-badge" style="background: #c8e6c9; color: #2e7d32;">Owner</span>
+            </div>
+        </div>
+        
+        {% for share in existing_shares %}
+        <div class="share-item">
+            <div>
+                <strong>{{ share.user.email }}</strong>
+                <span class="role-badge {{ share.role }}">{{ share.role|title }}</span>
+                <br>
+                <small style="color: #999;">Shared {{ share.created_at|timesince }} ago</small>
+            </div>
+            <form method="post" action="{% url 'revoke_access' share.id %}" style="margin: 0;">
+                {% csrf_token %}
+                <button type="submit" class="revoke-btn" onclick="return confirm('Remove access for {{ share.user.email }}?')">
+                    Remove
+                </button>
+            </form>
+        </div>
+        {% empty %}
+        <p style="color: #999; text-align: center; padding: 20px;">Not shared with anyone yet</p>
+        {% endfor %}
+    </div>
+    
+    <br>
+    <a href="{% url 'dashboard' %}" style="color: #667eea;">← Back to Dashboard</a>
+
+    <!-- ✅ JS for Copy Link (only once, at bottom) -->
+    <script>
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    async function createLink(fileId) {
+        try {
+            const res = await fetch(`/files/create-link/${fileId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json'
+                }
+            });
+            const data = await res.json();
+            if (res.ok) {
+                await navigator.clipboard.writeText(data.link);
+                alert('✅ Public link copied!');
+            } else {
+                alert('❌ ' + (data.error || 'Failed to create link'));
+            }
+        } catch (err) {
+            alert('⚠️ Copy failed: ' + err.message);
+        }
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!-- Assume basic structure: {% extends 'base.html' %} etc. -->
+{% block content %}
+
+<h2>{{ file.name }}</h2>
+<p>Owner: {{ file.owner.email }}</p>
+
+<!-- Two clear, separate sharing options -->
+<div class="sharing-buttons" style="margin: 1rem 0; display: flex; gap: 10px;">
+  <!-- Button 1: Share via Email -->
+  <button type="button" onclick="document.getElementById('email-share-form').style.display='block'">
+    📧 Share via Email
+  </button>
+
+  <!-- Button 2: Copy Link -->
+  <button type="button" id="copy-link-btn" data-file-id="{{ file.id }}">
+    🔗 Copy Link
+  </button>
+</div>
+
+<!-- Hidden email form -->
+<form id="email-share-form" method="post" style="display:none; margin-top:10px; padding: 10px; border: 1px solid #ccc;">
+  {% csrf_token %}
+  <input type="email" name="email" placeholder="Recipient email" required>
+  <select name="role">
+    <option value="viewer">Can view</option>
+    <option value="editor">Can edit</option>
+  </select>
+  <button type="submit">Send Invite</button>
+  <button type="button" onclick="this.closest('form').style.display='none'">Cancel</button>
+</form>
+
+<!-- Hidden link display -->
+<input type="text" id="link-display" readonly placeholder="Link will appear here..." 
+       style="display:none; margin-top:10px; width:100%; padding: 5px;">
+
+<!-- JS: Must be inside {% block content %} or after {% csrf_token %} is available -->
+<script>
+(function() {
+  const btn = document.getElementById('copy-link-btn');
+  if (!btn) return; // exit if no button (e.g., non-file page)
+
+  btn.addEventListener('click', async function() {
+    const btn = this;
+    const fileId = btn.dataset.fileId;
+    if (!fileId) {
+      alert('❌ File ID missing');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+
+    try {
+      // ✅ CRITICAL: URL must match your `urls.py` name 'create_shared_link'
+      // If your URL is '/files/create-link/...', change this!
+      const res = await fetch(`/files/create-shared-link/${fileId}/`, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`HTTP ${res.status}: ${err}`);
+      }
+
+      const data = await res.json();
+      if (!data.link) throw new Error('No link in response');
+
+      const input = document.getElementById('link-display');
+      input.value = data.link;
+      input.style.display = 'block';
+      input.select();
+      await navigator.clipboard.writeText(data.link);
+      btn.textContent = '✅ Copied!';
+    } catch (e) {
+      console.error('Copy link failed:', e);
+      alert('❌ Failed: ' + (e.message || 'Unknown error'));
+      btn.textContent = '🔁 Retry';
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '🔗 Copy Link';
+      }, 2000);
+    }
+  });
+})();
+</script>
+
+{% endblock %}

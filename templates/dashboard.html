@@ -1,5 +1,24 @@
 <!-- templates/dashboard.html -->
-<h1>Dashboard - {{ email }}</h1>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DropVault - Dashboard</title>
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    ul { list-style-type: none; padding: 0; }
+    li { padding: 10px 0; border-bottom: 1px solid #eee; }
+    button { margin: 3px 2px; padding: 4px 8px; font-size: 12px; }
+    .file-row { display: flex; align-items: center; gap: 8px; }
+    .share-group { display: flex; flex-direction: column; gap: 4px; }
+    .email-form { display: none; margin-top: 6px; font-size: 12px; }
+    .email-form input,
+    .email-form select { padding: 2px; font-size: 12px; }
+    .link-input { display: none; margin-top: 6px; font-size: 11px; width: 220px; padding: 2px; }
+  </style>
+</head>
+<body>
+<h1>Dashboard - {{ user.email }}</h1>
 
 <!-- Upload Form -->
 <form id="uploadForm" enctype="multipart/form-data">
@@ -8,74 +27,182 @@
   <button type="submit">Upload File</button>
 </form>
 
+<!-- Shared-with-me (placeholder) -->
+<div style="margin-top: 30px;">
+  <h3>📤 Sharing</h3>
+  <span style="color: #999; font-style: italic;">📁 Shared files — coming soon</span>
+</div>
+
 <!-- File List -->
 <h2>Your Files</h2>
-<ul id="fileList"></ul>
+<ul id="fileList">
+  <li>Loading files...</li>
+</ul>
 <button onclick="loadFiles()">Refresh Files</button>
 
-<!-- Trash Button -->
-<a href="/files/trash/">View Trash</a>
+<!-- Trash Link -->
+<a href="/files/trash/" style="display: inline-block; margin-top: 10px;">View Trash</a>
 
 <script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
 // Upload file
-document.getElementById('uploadForm').onsubmit = async (e) => {
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
-  const res = await fetch('/files/upload/', {
-    method: 'POST',
-    body: formData,
-    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-  });
-  if (res.ok) {
-    alert('Uploaded!');
-    loadFiles();
-  } else {
-    const err = await res.json();
-    alert('Upload failed: ' + (err.error || 'Unknown error'));
+  try {
+    const res = await fetch('/files/upload/', {
+      method: 'POST',
+      body: formData,
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert('✅ File uploaded successfully!');
+      loadFiles();
+      e.target.reset();
+    } else {
+      alert('❌ Upload failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('❌ Network error: ' + err.message);
   }
-};
+});
 
-// Load files
+// Load files (AJAX)
 async function loadFiles() {
-  const res = await fetch('/files/list/');
-  const files = await res.json();
-  document.getElementById('fileList').innerHTML = 
-    files.map(f => 
-      `<li>
-        ${f.original_name} 
-        <button onclick="deleteFile(${f.id})">Delete</button>
-        <button onclick="shareFile(${f.id})">Share</button>
-       </li>`
-    ).join('');
+  try {
+    const res = await fetch('/files/list/', {
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+
+    if (!res.ok) {
+      document.getElementById('fileList').innerHTML = '<li>❌ Failed to load files</li>';
+      return;
+    }
+
+    const files = await res.json();
+    if (files.length === 0) {
+      document.getElementById('fileList').innerHTML = '<li>📁 No files uploaded yet.</li>';
+    } else {
+      document.getElementById('fileList').innerHTML = files.map(f => 
+          `<li>
+            <div class="file-row">
+              <strong>${f.filename}</strong> (${Math.round(f.size / 1024)} KB)
+              <button onclick="deleteFile(${f.id})">🗑️ Delete</button>
+              <div class="share-group">
+                <button onclick="toggleEmailForm(${f.id})">📧 Share</button>
+                <form id="email-form-${f.id}" class="email-form" onsubmit="return submitEmailShare(${f.id}, event)">
+                  <input type="email" name="email" placeholder="Email" required>
+                  <select name="role">
+                    <option value="viewer">View</option>
+                    <option value="editor">Edit</option>
+                  </select>
+                  <button type="submit">Send</button>
+                  <button type="button" onclick="toggleEmailForm(${f.id})">✕</button>
+                </form>
+                <button onclick="copyLink(${f.id})">🔗 Copy Link</button>
+                <input type="text" id="link-input-${f.id}" class="link-input" readonly>
+              </div>
+            </div>
+          </li>`
+      ).join('');
+    }
+  } catch (err) {
+    document.getElementById('fileList').innerHTML = `<li>❌ Error: ${err.message}</li>`;
+  }
+}
+
+// Toggle email form
+function toggleEmailForm(fileId) {
+  const form = document.getElementById(`email-form-${fileId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+// Submit email share
+async function submitEmailShare(fileId, e) {
+  e.preventDefault();
+  const form = e.target;
+  const email = form.email.value;
+  const role = form.role.value;
+
+  const formData = new FormData();
+  formData.append('email', email);
+  formData.append('role', role);
+
+  try {
+    const res = await fetch(`/files/share/${fileId}/`, {
+      method: 'POST',
+      body: formData,
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert('✅ Shared successfully!');
+      toggleEmailForm(fileId);
+    } else {
+      alert('❌ Share failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('❌ Share error: ' + err.message);
+  }
+  return false;
+}
+
+// Copy public link
+async function copyLink(fileId) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+
+  try {
+    const res = await fetch(`/files/create-shared-link/${fileId}/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { link } = await res.json();
+
+    const input = document.getElementById(`link-input-${fileId}`);
+    input.value = link;
+    input.style.display = 'block';
+    input.select();
+    await navigator.clipboard.writeText(link);
+    btn.textContent = '✅';
+  } catch (e) {
+    console.error('Copy link failed:', e);
+    btn.textContent = '❌';
+    alert('❌ Failed to generate link. Check network/console.');
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '🔗 Copy Link';
+    }, 1500);
+  }
 }
 
 // Delete file
 async function deleteFile(id) {
   if (!confirm('Delete this file?')) return;
-  await fetch(`/files/delete/${id}/`, {
-    method: 'POST',
-    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-  });
-  loadFiles();
-}
-
-// Share file
-async function shareFile(fileId) {
-  const res = await fetch(`/files/share/${fileId}/`, {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': '{{ csrf_token }}',  // ✅ Use template tag, not getCookie
-      'Accept': 'application/json'
+  try {
+    const res = await fetch(`/files/delete/${id}/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+    if (res.ok) {
+      alert('✅ Deleted');
+      loadFiles();
+    } else {
+      const data = await res.json();
+      alert('❌ Delete failed: ' + (data.error || 'Permission denied'));
     }
-  });
-  const data = await res.json();
-  if (res.ok) {
-    prompt('Copy your secure share link:', data.url);
-  } else {
-    alert('Failed to create share link.');
+  } catch (err) {
+    alert('❌ Delete error: ' + err.message);
   }
 }
 
 // Load on start
 loadFiles();
 </script>
+</body>
+</html>

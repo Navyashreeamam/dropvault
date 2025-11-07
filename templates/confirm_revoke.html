@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Confirm Revoke Access</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 100px auto; padding: 20px; text-align: center; }
+        .warning-box { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 30px; }
+        h2 { color: #856404; margin-top: 0; }
+        .file-name { font-weight: bold; color: #333; }
+        .user-email { color: #d32f2f; font-weight: bold; }
+        .actions { margin-top: 30px; }
+        .btn { padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin: 0 8px; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-cancel { background: #e0e0e0; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="warning-box">
+        <h2>⚠️ Revoke Access?</h2>
+        <p>Are you sure you want to remove access for:</p>
+        <p class="user-email">{{ share.user.email }}</p>
+        <p>from file:</p>
+        <p class="file-name">{{ share.file.original_name }}</p>
+        <p style="color: #666; font-size: 14px;">They will no longer be able to view or edit this file.</p>
+        
+        <div class="actions">
+            <form method="post" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger">Yes, Revoke Access</button>
+            </form>
+            <a href="{% url 'share_file' share.file.id %}">
+                <button type="button" class="btn btn-cancel">Cancel</button>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
