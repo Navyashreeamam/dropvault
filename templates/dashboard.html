@@ -27,10 +27,32 @@
   <button type="submit">Upload File</button>
 </form>
 
-<!-- Shared-with-me (placeholder) -->
+<!-- ✅ Shared by You -->
 <div style="margin-top: 30px;">
-  <h3>📤 Sharing</h3>
-  <span style="color: #999; font-style: italic;">📁 Shared files — coming soon</span>
+  <h3>🔗 Shared by You ({{ shared_links|length }})</h3>
+  {% if shared_links %}
+    <ul style="list-style-type: none; padding: 0;">
+      {% for link in shared_links %}
+        <li style="padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px;">
+          📄 <strong>{{ link.file.original_name }}</strong>
+          {% if link.slug %}
+            <br><small>🔗 Public link: <code>/s/{{ link.slug }}/</code></small>
+          {% else %}
+            <br><small>📧 Email link (token: {{ link.token|truncatechars:12 }})</small>
+          {% endif %}
+          <br><small>
+            👁️ Views: {{ link.view_count }} |
+            ⬇️ Downloads: {{ link.download_count }}/{{ link.max_downloads }} |
+            {% if link.is_expired %}<span style="color:#d32f2f">❌ Expired</span>
+            {% else %}<span style="color:#2e7d32">✅ Active</span>
+            {% endif %}
+          </small>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p style="color: #666;">🕗 No shared links yet.</p>
+  {% endif %}
 </div>
 
 <!-- File List -->
@@ -123,27 +145,29 @@ function toggleEmailForm(fileId) {
 async function submitEmailShare(fileId, e) {
   e.preventDefault();
   const form = e.target;
-  const email = form.email.value;
+  const email = form.email.value.trim();
   const role = form.role.value;
 
-  const formData = new FormData();
-  formData.append('email', email);
-  formData.append('role', role);
-
   try {
-    const res = await fetch(`/files/share/${fileId}/`, {
+    const res = await fetch(`/files/share/${fileId}/email/`, {
       method: 'POST',
-      body: formData,
-      headers: { 'X-CSRFToken': csrfToken }
+      headers: {
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, role })
     });
+
     const data = await res.json();
     if (res.ok) {
       alert('✅ Shared successfully!');
       toggleEmailForm(fileId);
+      form.reset();
     } else {
       alert('❌ Share failed: ' + (data.error || 'Unknown error'));
     }
   } catch (err) {
+    console.error('Email share error:', err);
     alert('❌ Share error: ' + err.message);
   }
   return false;
@@ -156,7 +180,7 @@ async function copyLink(fileId) {
   btn.textContent = '⏳';
 
   try {
-    const res = await fetch(`/files/create-shared-link/${fileId}/`, {
+    const res = await fetch(`/files/share/${fileId}/`, {
       method: 'POST',
       headers: { 'X-CSRFToken': csrfToken }
     });

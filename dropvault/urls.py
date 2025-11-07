@@ -3,13 +3,16 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
 from files import sharingviews
+from files import views as file_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
     path('accounts/', include('accounts.urls')),
     path('files/', include('files.urls')),
+    path('dashboard/', file_views.dashboard, name='dashboard'),
     path('', TemplateView.as_view(template_name='home.html'), name='home'),
+    path('', file_views.dashboard, name='home'),
     
     path('s/<str:slug>/', sharingviews.access_shared_file, name='shared_file'),
     path('s/<str:slug>/download/', sharingviews.download_shared_file, name='download_shared_file'),

@@ -4,6 +4,8 @@ import hashlib
 import secrets
 import base64
 import json
+from django.shortcuts import render
+from .models import SharedLink
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse
@@ -138,9 +140,18 @@ def list_files(request):
     files = File.objects.filter(
         user=request.user,
         deleted=False
-    ).values('id', 'original_name', 'size', 'uploaded_at')
-    return JsonResponse(list(files), safe=False)
-
+    ).values('id', 'original_name', 'size', 'uploaded_at')  # ← keep this
+    # Convert to list of dicts with 'filename' key for JS
+    file_list = [
+        {
+            'id': f['id'],
+            'filename': f['original_name'],  # ← JS uses 'filename'
+            'size': f['size'],
+            'uploaded_at': f['uploaded_at'].isoformat()
+        }
+        for f in files
+    ]
+    return JsonResponse(file_list, safe=False)
 
 @login_required
 @require_http_methods(["POST"])
@@ -168,3 +179,13 @@ def trash_list(request):
         deleted=True
     ).values('id', 'original_name', 'size', 'uploaded_at')
     return JsonResponse(list(trashed), safe=False)
+
+@login_required
+def dashboard(request):
+    shared_links = SharedLink.objects.filter(
+        owner=request.user
+    ).select_related('file')
+
+    return render(request, 'dashboard.html', {
+        'shared_links': shared_links
+    })
