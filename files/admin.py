@@ -1,14 +1,18 @@
-# DropVault/files/admin.py
 from django.contrib import admin
 from .models import File, Trash, FileLog, SharedLink
 
 
 @admin.register(File)
 class FileAdmin(admin.ModelAdmin):
-    list_display = ['id', 'original_name', 'user', 'size', 'uploaded_at', 'deleted', 'sha256']
-    list_filter = ['deleted', 'uploaded_at', 'user']
+    list_display = ['id', 'original_name', 'user', 'size', 'uploaded_at', 'deleted', 'sha256', 'is_shared']
+    list_filter = ['deleted', 'uploaded_at', 'user']  # ← REMOVED 'is_shared' here
     search_fields = ['original_name', 'user__email', 'sha256']
     readonly_fields = ['sha256', 'uploaded_at']
+
+    def is_shared(self, obj):
+        return SharedLink.objects.filter(file=obj, is_active=True).exists()
+    is_shared.boolean = True
+    is_shared.short_description = 'Shared'
 
 
 @admin.register(Trash)
