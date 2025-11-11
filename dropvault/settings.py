@@ -163,6 +163,17 @@ DATABASES = {
     )
 }
 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('PGDATABASE', 'railway'),
+        'USER': os.getenv('PGUSER', 'postgres'),
+        'PASSWORD': os.getenv('PGPASSWORD', ''),
+        'HOST': os.getenv('PGHOST', 'localhost'),
+        'PORT': os.getenv('PGPORT', '5432'),
+        'OPTIONS': {'sslmode': 'require'},
+    }
+}
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
