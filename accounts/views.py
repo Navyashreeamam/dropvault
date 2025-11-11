@@ -19,6 +19,11 @@ from .utils import verify_token
 from django.template.loader import render_to_string
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from .models import UserProfile
+from django.contrib.auth.password_validation import validate_password
+from django.views.decorators.http import require_http_methods
+
 
 @csrf_exempt
 def test_email(request):
@@ -67,117 +72,94 @@ def send_verification_email(user):
         traceback.print_exc()
         return False
 
+
 @csrf_exempt
 def signup(request):
-    if request.method == 'POST':
-        email = request.POST['email'].strip()
-        password = request.POST['password']
-        confirm = request.POST['confirm_password']
-        if len(password) < 8:
-            messages.error(request, "Password must be at least 8 characters.")
-            return render(request, 'signup.html')
-        if not re.search(r'[a-z]', password):
-            messages.error(request, "Password must contain a lowercase letter.")
-            return render(request, 'signup.html')
-        if not re.search(r'[0-9]', password):
-            messages.error(request, "Password must contain a digit.")
-            return render(request, 'signup.html')
-        if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:"\\|,.<>\/?]', password):
-            messages.error(request, "Password must contain a symbol (!@#$%^&* etc).")
-            return render(request, 'signup.html')
-        if password != confirm:
-            messages.error(request, "Passwords don't match.")
-            return render(request, 'signup.html')
-       
-        try:
-            validate_email(email)
-        except ValidationError:
-            messages.error(request, "Invalid email.")
-            return render(request, 'signup.html')
-        ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
-        if cache.get(f"signup_{ip}", 0) >= 3:
-            messages.error(request, "Too many signup attempts.")
-            return render(request, 'signup.html')
-        if User.objects.filter(email=email).exists():
-            messages.error(request, "Email already registered.")
-            return render(request, 'signup.html')
-        user = User.objects.create_user(username=email, email=email, password=password, is_active=True)
-        profile = UserProfile.objects.create(user=user)
-        cache.set(f"signup_{ip}", cache.get(f"signup_{ip}", 0) + 1, 3600)
-       
-        email_sent = send_verification_email(user)
-       
-        if email_sent:
-            messages.success(request,
-                "Account created successfully! Please check your email (including spam folder) to verify your account.")
-        else:
-            profile.email_verified = True
-            profile.save()
-            print(f"⚠️ Auto-verified {email} due to email send failure.")
-            messages.warning(request,
-                "Account created but verification email couldn't be sent. You can login now.")
-       
-        return redirect('login')
-   
-    return render(request, 'signup.html')
+    if request.method != 'POST':
+        return HttpResponse("Use POST to /accounts/api/signup/", status=405)
 
-@csrf_exempt
-def verify_email(request):
-    token = request.GET.get('token')
-    user = verify_token(token)
-    if user:
-        user.userprofile.email_verified = True
-        user.userprofile.save()
-        user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(request, user)
-        messages.success(request, "Email verified successfully! Welcome to DropVault.")
-        return redirect('dashboard')
+    # 🔄 Parse request data (JSON or form-data)
+    if request.content_type == 'application/json':
+        try:
+            data = json.loads(request.body)
+            email = data.get('email', '').strip()
+            password = data.get('password', '').strip()
+            confirm = data.get('password2', password).strip()  # optional confirm
+            name = data.get('name', '').strip()
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
     else:
-        messages.error(request, "Invalid or expired verification link.")
-        return redirect('login')
+        # Form-data (multipart/form-data or application/x-www-form-urlencoded)
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '').strip()
+        confirm = request.POST.get('password2', password).strip()
+        name = request.POST.get('name', '').strip()
 
-@csrf_exempt
-def login_view(request):
-    if request.method == 'POST':
-        email = request.POST['email'].strip()
-        password = request.POST['password']
-        ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
-        def log_attempt(success):
-            try:
-                LoginAttempt.objects.create(email=email, ip_address=ip, success=success)
-            except Exception as e:
-                print(f"Failed to log attempt: {e}")
-        if cache.get(f"login_fail_{email}", 0) >= 5:
-            log_attempt(False)
-            messages.error(request, "Too many failed attempts. Please try again later.")
-            return render(request, 'login.html')
-        try:
-            user = User.objects.get(email=email)
-            if not user.userprofile.email_verified:
-                messages.error(request, "Please verify your email first. Check your inbox.")
-                return render(request, 'login.html')
-           
-            auth_user = authenticate(request, username=user.username, password=password)
-            if auth_user:
-                cache.delete(f"login_fail_{email}")
-                login(request, auth_user)
-                log_attempt(True)
-                if auth_user.totpdevice_set.filter(confirmed=True).exists():
-                    return redirect('otp_verify')
-                else:
-                    messages.success(request, f"Welcome back, {email}!")
-                    return redirect('dashboard')
-            else:
-                raise User.DoesNotExist
-               
-        except (User.DoesNotExist, Exception) as e:  # Broader catch for DB/auth errors
-            cache.set(f"login_fail_{email}", cache.get(f"login_fail_{email}", 0) + 1, 900)
-            log_attempt(False)
-            messages.error(request, "Invalid email or password.")
-            return render(request, 'login.html')
-   
-    return render(request, 'login.html')
+    # ✅ 1. Required fields
+    if not email:
+        return JsonResponse({'error': 'Email is required.'}, status=400)
+    if not password:
+        return JsonResponse({'error': 'Password is required.'}, status=400)
 
+    # ✅ 2. Password match (only if confirm was explicitly sent and differs)
+    if confirm != password:
+        return JsonResponse({'error': 'Passwords don’t match.'}, status=400)
+
+    # ✅ 3. Email format
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({'error': 'Invalid email format.'}, status=400)
+
+    # ✅ 4. Rate limiting (3 attempts/hour/IP)
+    ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
+    attempts = cache.get(f"signup_{ip}", 0)
+    if attempts >= 3:
+        return JsonResponse({
+            'error': 'Too many signup attempts. Try again in 1 hour.'
+        }, status=429)
+
+    # ✅ 5. Duplicate email
+    if User.objects.filter(email__iexact=email).exists():
+        return JsonResponse({
+            'error': 'An account with this email already exists.'
+        }, status=400)
+
+    # ✅ 6. Password strength — use Django’s built-in validators (recommended)
+    try:
+        # Create dummy user for validation (no DB save yet)
+        temp_user = User(email=email, username=email)
+        validate_password(password, user=temp_user)
+    except ValidationError as e:
+        return JsonResponse({
+            'error': ' '.join(e.messages)  # e.g., "This password is too short. It must contain at least 8 characters."
+        }, status=400)
+
+    # ✅ 7. Create user
+    try:
+        user = User.objects.create_user(
+            username=email,  # or use uuid/email prefix if username clashes
+            email=email,
+            password=password,
+            first_name=name,
+            is_active=True
+        )
+        UserProfile.objects.get_or_create(user=user)
+    except Exception as e:
+        return JsonResponse({
+            'error': 'Account creation failed. Please try again.'
+        }, status=500)
+
+    # ✅ 8. Update rate limit
+    cache.set(f"signup_{ip}", attempts + 1, timeout=3600)
+
+    # ✅ Success
+    return JsonResponse({
+        'message': 'Account created successfully!',
+        'user_id': user.id,
+        'email': user.email,
+        'name': user.first_name
+    }, status=201)
 
 @csrf_exempt
 @login_required
@@ -224,18 +206,103 @@ def disable_mfa(request):
         return redirect('dashboard')
     return render(request, 'disable_mfa.html')
 
+
+def login_view(request):
+    # 🔐 Prevent already-logged-in users from accessing login page
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    if request.method == 'POST':
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+
+        # ✅ 1. Validate input
+        if not email or not password:
+            messages.error(request, "Email and password are required.")
+            return render(request, 'login.html')
+
+        try:
+            # ✅ 2. Case-insensitive email lookup (critical!)
+            user = User.objects.get(email__iexact=email)
+            
+            # ✅ 3. Authenticate (always use username for Django's backend)
+            user = authenticate(request, username=user.username, password=password)
+            
+            if user is not None:
+                # ✅ 4. Check active status (security)
+                if user.is_active:
+                    login(request, user)
+                    return redirect('dashboard')
+                else:
+                    messages.error(request, "Account is inactive. Please verify your email.")
+            else:
+                # ❌ Auth failed (wrong password)
+                messages.error(request, "Invalid email or password.")
+                
+        except User.DoesNotExist:
+            # ❌ Email not found
+            messages.error(request, "Invalid email or password.")
+
+    return render(request, 'login.html')
+
+
 @login_required
-@csrf_exempt
 def logout_view(request):
-    logout(request)
-    messages.success(request, "You have been logged out successfully.")
-    return redirect('home')
+    # ✅ 1. Only POST for logout (prevent CSRF via GET)
+    if request.method == 'POST':
+        logout(request)
+        messages.success(request, "You have been logged out successfully.")
+        return redirect('home')
+    
+    # GET: show confirmation page (optional but safer)
+    return render(request, 'logout_confirm.html')
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def login_api(request):
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        password = data.get('password')
+
+        user = authenticate(request, username=email, password=password)
+        if user is not None:
+            login(request, user)  # ✅ THIS sets the session & sends Set-Cookie
+            return JsonResponse({
+                "status": "ok",
+                "email": user.email,
+                "user_id": user.id
+            })
+        else:
+            return JsonResponse({"error": "Invalid credentials"}, status=401)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+    
 
 @login_required
 def dashboard(request):
     return render(request, 'dashboard.html')
 
-
+def verify_email(request):
+    """Handle email verification link click (web flow)"""
+    token = request.GET.get('token')
+    user = verify_token(token)
+    
+    if user:
+        # Mark email as verified
+        user.userprofile.email_verified = True
+        user.userprofile.save()
+        
+        # Auto-login the user (optional but UX-friendly)
+        if not request.user.is_authenticated:
+            user.backend = 'django.contrib.auth.backends.ModelBackend'
+            login(request, user)
+        
+        messages.success(request, "✅ Email verified successfully! Welcome to DropVault.")
+        return redirect('dashboard')
+    else:
+        messages.error(request, "❌ Invalid or expired verification link.")
+        return redirect('home')
 
 @login_required
 @csrf_exempt
@@ -261,61 +328,114 @@ def api_verify_email(request):
         return JsonResponse({'success': True, 'message': 'Email verified'})
     return JsonResponse({'error': 'Invalid token'}, status=400)
 
+
 @csrf_exempt
 def api_signup(request):
+    """Pure API signup — no HTML, JSON-only"""
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
-    
+
+    # Only accept JSON for API
+    if request.content_type != 'application/json':
+        return JsonResponse({'error': 'Content-Type must be application/json'}, status=400)
+
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip()
-        password = data.get('password', '')
-        confirm_password = data.get('confirm_password', '')
+        name = data.get('name', '').strip()
+
+        # 🔑 Accept flexible password fields: "password", or "password1"/"password2"
+        password = data.get('password', '').strip()
+        confirm = data.get('password2', password).strip()
+        if not password:
+            password = data.get('password1', '').strip()
+            confirm = data.get('password2', '').strip()
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
-    # Validate password
-    if len(password) < 8:
-        return JsonResponse({'error': 'Password must be at least 8 characters.'}, status=400)
-    if not re.search(r'[a-z]', password):
-        return JsonResponse({'error': 'Password must contain a lowercase letter.'}, status=400)
-    if not re.search(r'[0-9]', password):
-        return JsonResponse({'error': 'Password must contain a digit.'}, status=400)
-    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:"\\|,.<>\/?]', password):
-        return JsonResponse({'error': 'Password must contain a symbol (!@#$%^&* etc).'}, status=400)
-    if password != confirm_password:
-        return JsonResponse({'error': 'Passwords don\'t match.'}, status=400)
+    # ✅ 1. Required
+    if not email:
+        return JsonResponse({'error': 'Email is required.'}, status=400)
+    if not password:
+        return JsonResponse({'error': 'Password is required.'}, status=400)
 
+    # ✅ 2. Match
+    if confirm != password:
+        return JsonResponse({'error': 'Passwords don’t match.'}, status=400)
+
+    # ✅ 3. Email format
     try:
         validate_email(email)
     except ValidationError:
-        return JsonResponse({'error': 'Invalid email.'}, status=400)
+        return JsonResponse({'error': 'Invalid email format.'}, status=400)
 
+    # ✅ 4. Rate limit
     ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
-    if cache.get(f"signup_{ip}", 0) >= 3:
-        return JsonResponse({'error': 'Too many signup attempts.'}, status=429)
+    attempts = cache.get(f"signup_{ip}", 0)
+    if attempts >= 3:
+        return JsonResponse({
+            'error': 'Too many signup attempts. Try again in 1 hour.'
+        }, status=429)
 
-    if User.objects.filter(email=email).exists():
-        return JsonResponse({'error': 'Email already registered.'}, status=409)
+    # ✅ 5. Duplicate
+    if User.objects.filter(email__iexact=email).exists():
+        return JsonResponse({
+            'error': 'An account with this email already exists.'
+        }, status=400)
 
-    user = User.objects.create_user(username=email, email=email, password=password)
-    profile = UserProfile.objects.create(user=user)
-    cache.set(f"signup_{ip}", cache.get(f"signup_{ip}", 0) + 1, 3600)
-    
+    # ✅ 6. Password strength (Django built-in)
+    try:
+        temp_user = User(email=email, username=email)
+        validate_password(password, user=temp_user)
+    except ValidationError as e:
+        return JsonResponse({'error': ' '.join(e.messages)}, status=400)
+
+    # ✅ 7. Create
+    try:
+        # ✅ Generate unique username to avoid 500 on duplicate
+        base_username = email.split('@')[0].lower()
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=name,
+            is_active=True
+        )
+        
+        # ✅ Safe UserProfile creation
+        profile, _ = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={'email_verified': False}
+        )
+    except Exception as e:
+        import traceback
+        print("🚨 SIGNUP ERROR:", str(e))
+        traceback.print_exc()
+        return JsonResponse({'error': f'Internal error: {str(e)}'}, status=500)
+
+    cache.set(f"signup_{ip}", attempts + 1, 3600)
+
+    # ✅ Send verification email
     email_sent = send_verification_email(user)
-    
     if not email_sent:
-        profile.email_verified = True
-        profile.save()
+        user.userprofile.email_verified = True
+        user.userprofile.save()
 
     return JsonResponse({
-        'status': 'success',
-        'message': 'Account created successfully!' if email_sent else 'Account created (email skipped).',
-        'user': {
-            'id': user.id,
-            'email': user.email
-        }
+        'message': 'Account created successfully!',
+        'user_id': user.id,
+        'email': user.email,
+        'name': user.first_name,
+        'email_verified': user.userprofile.email_verified,
+        'verification_email_sent': email_sent
     }, status=201)
+
 
 @csrf_exempt
 def api_login(request):
@@ -325,11 +445,29 @@ def api_login(request):
         data = json.loads(request.body)
         email = data.get('email')
         password = data.get('password')
+
+        if not email or not password:
+            return JsonResponse({'error': 'Email and password required'}, status=400)
+
+        # Get user (email must be unique)
         user = User.objects.get(email=email)
+
+        # Authenticate
         auth_user = authenticate(request, username=user.username, password=password)
-        if auth_user:
-            return JsonResponse({'status': 'ok', 'email': email})
-        return JsonResponse({'error': 'auth failed'}, status=401)
+        if not auth_user:
+            return JsonResponse({'error': 'Invalid credentials'}, status=401)
+
+        # 🔑 CRITICAL: Create session & set sessionid cookie
+        login(request, auth_user)  # ← THIS sets the sessionid cookie
+
+        return JsonResponse({
+            'status': 'ok',
+            'email': auth_user.email,
+            'user_id': auth_user.id
+        }, status=200)
+
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
     

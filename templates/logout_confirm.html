@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>Log In</title></head>
+<body>
+    <h1>Log In</h1>
+    {% if messages %}
+        {% for message in messages %}
+            <p style="color: {% if message.tags == 'error' %}red{% else %}green{% endif %};">{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+    <form method="post">
+    {% csrf_token %}
+    <p>Are you sure you want to log out?</p>
+    <button type="submit">Yes, log out</button>
+    </form>
+    <a href="{% url 'home' %}">Back</a>
+</body>
+</html>
