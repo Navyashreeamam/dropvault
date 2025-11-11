@@ -25,13 +25,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-abc123xyz!@#dev-only-
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost').split(',')
 
-import dj_database_url
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL')
-    )
-}
 # password settings.py
 
 PASSWORD_HASHERS = [
@@ -160,11 +154,19 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
+
+# 🔁 Fallback to SQLite if DATABASE_URL is missing or invalid (e.g., local dev)
+if not DATABASES['default'].get('NAME'):
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
@@ -185,25 +187,6 @@ X_FRAME_OPTIONS = 'DENY'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880   # 5 MB
 
-# Priority: DATABASE_URL (Railway/Heroku-style) → fallback to individual vars → localhost dev
-DATABASES = {
-    'default': dj_database_url.config(
-        default=config('DATABASE_URL', default=''),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
-
-# Fallback if DATABASE_URL not set (e.g., local dev with .env)
-if not DATABASES['default']['NAME']:
-    DATABASES['default'] = {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='dropvault'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default=''),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
-    }
 
 # cache frunction for login throttling
 CACHES = {
