@@ -154,27 +154,30 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# 🔐 Production: require DATABASE_URL
+# Use PostgreSQL on Railway, SQLite locally
 if os.getenv('RAILWAY_ENVIRONMENT'):
-    # Railway: MUST use PostgreSQL
-    database_url = os.getenv('DATABASE_URL')
-    if not database_url:
-        raise RuntimeError("❌ DATABASE_URL is missing in Railway. Check Variables.")
     DATABASES = {
-        'default': dj_database_url.parse(
-            database_url,
+        'default': dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
             conn_max_age=600,
             conn_health_checks=True,
         )
     }
 else:
-    # Local: SQLite
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
+
+DATABASES = {
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL', 'sqlite:///db.sqlite3'),  # fallback
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
+}
 
 
 STATIC_URL = '/static/'
