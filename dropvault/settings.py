@@ -69,7 +69,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
 
-    'django_extensions',
     # OTP (2FA)
     'django_otp',
     'django_otp.plugins.otp_totp',
