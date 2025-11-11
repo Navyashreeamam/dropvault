@@ -156,10 +156,10 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 
 # 🔐 Production: require DATABASE_URL
 if os.getenv('RAILWAY_ENVIRONMENT'):
-    # Railway sets this env var automatically
+    # Railway: MUST use PostgreSQL
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
-        raise ImproperlyConfigured("❌ Missing DATABASE_URL in Railway. Check Variables.")
+        raise RuntimeError("❌ DATABASE_URL is missing in Railway. Check Variables.")
     DATABASES = {
         'default': dj_database_url.parse(
             database_url,
@@ -167,15 +167,13 @@ if os.getenv('RAILWAY_ENVIRONMENT'):
             conn_health_checks=True,
         )
     }
-
-# 💻 Local dev: fallback to SQLite if no DATABASE_URL
 else:
+    # Local: SQLite
     DATABASES = {
-        'default': dj_database_url.config(
-            default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-            conn_max_age=600,
-            conn_health_checks=True,
-        )
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
 
 
