@@ -4,6 +4,7 @@ from decouple import config
 import os
 import dj_database_url
 from django.core.management.utils import get_random_secret_key
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -153,20 +154,30 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL'),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
-
-# 🔁 Fallback to SQLite if DATABASE_URL is missing or invalid (e.g., local dev)
-if not DATABASES['default'].get('NAME'):
-    DATABASES['default'] = {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# 🔐 Production: require DATABASE_URL
+if os.getenv('RAILWAY_ENVIRONMENT'):
+    # Railway sets this env var automatically
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        raise ImproperlyConfigured("❌ Missing DATABASE_URL in Railway. Check Variables.")
+    DATABASES = {
+        'default': dj_database_url.parse(
+            database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
+
+# 💻 Local dev: fallback to SQLite if no DATABASE_URL
+else:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
