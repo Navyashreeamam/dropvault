@@ -163,7 +163,19 @@ DATABASES = {
     )
 }
 
+print("🔍 DATABASE_URL =", os.getenv('DATABASE_URL', 'NOT SET'))
 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('PGDATABASE'),
+        'USER': os.getenv('PGUSER'),
+        'PASSWORD': os.getenv('PGPASSWORD'),
+        'HOST': os.getenv('PGHOST'),
+        'PORT': os.getenv('PGPORT'),
+        'OPTIONS': {'sslmode': 'require'},
+    }
+}
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
