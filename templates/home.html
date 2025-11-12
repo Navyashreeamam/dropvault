@@ -149,9 +149,9 @@
         </div>
         
         <div class="btn-group">
-            <a href="{% url 'signup' %}" class="btn btn-primary">Sign Up</a>
-            <a href="{% url 'login' %}" class="btn btn-secondary">Login</a>
-            <!---<a href="{% provider_login_url 'google' %}">Login with Google</a>--->
+            <a href="{% url 'account_signup' %}" class="btn btn-primary">Sign Up</a>
+            <a href="{% url 'account_login' %}" class="btn btn-secondary">Login</a>
+            <a href="{% provider_login_url 'google' %}" class="btn btn-light">Login with Google</a>
         </div>
     </div>
 </body>

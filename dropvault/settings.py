@@ -23,7 +23,7 @@ from django.core.exceptions import ImproperlyConfigured
 from decouple import config
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-abc123xyz!@#dev-only-do-not-use-in-prod')
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost').split(',')
 
 
@@ -35,19 +35,17 @@ PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
 ]
 
-
-# Email settings
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
+# Email
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = config('EMAIL_HOST')
 EMAIL_PORT = config('EMAIL_PORT', cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+
 EMAIL_HOST_USER = config('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', cast=bool)
 
-EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-EMAIL_FILE_PATH = '/tmp/app-messages'
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
 
-# For debugging
 EMAIL_DEBUG = True
 
 # Application definition
@@ -65,6 +63,7 @@ INSTALLED_APPS = [
     'allauth.account',
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
+
     'rest_framework',
     'rest_framework.authtoken',
 
@@ -84,16 +83,18 @@ AUTHENTICATION_BACKENDS = [
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
-SITE_ID = 1  
-
+SITE_URL = 'http://localhost:8000'
+DEFAULT_FROM_EMAIL = 'navyashreeamam@gmail.com'
 # Google OAuth
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
-        'SCOPE': ['profile', 'email'],
-        'AUTH_PARAMS': {'access_type': 'online'},
-        'VERIFIED_EMAIL': True,  # Trust Google’s verified email
+        'APP': {
+            'client_id': config('GOOGLE_CLIENT_ID'),
+            'secret': config('GOOGLE_SECRET'),
+        }
     }
 }
+
 
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomSocialAccountAdapter'
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'  # allauth's auto-verify
@@ -154,20 +155,20 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+default_db_url = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
 
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL'),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
 
+# Database
+DATABASES = {
+    'default': dj_database_url.parse(config('DATABASE_URL'))
+}
 
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
-]
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 

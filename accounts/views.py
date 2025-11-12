@@ -23,7 +23,7 @@ from django.utils.decorators import method_decorator
 from .models import UserProfile
 from django.contrib.auth.password_validation import validate_password
 from django.views.decorators.http import require_http_methods
-
+from .utils import send_verification_email
 
 @csrf_exempt
 def test_email(request):
@@ -46,14 +46,16 @@ def test_email(request):
 def send_verification_email(user):
     try:
         token = secrets.token_urlsafe(32)
-        user.userprofile.verification_token = token
-        user.userprofile.save()
-       
+        # ✅ Safe: get or create profile
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.verification_token = token
+        profile.save(update_fields=['verification_token'])  # ⚡ explicit save
+
         link = f"http://127.0.0.1:8000/accounts/verify-email/?token={token}"
-       
+
         text_content = render_to_string('verification_email.txt', {'link': link})
         html_content = render_to_string('verification_email.html', {'link': link})
-       
+
         email = EmailMultiAlternatives(
             subject="Verify your DropVault email",
             body=text_content,
@@ -62,16 +64,39 @@ def send_verification_email(user):
         )
         email.attach_alternative(html_content, "text/html")
         email.send(fail_silently=False)
-       
+
         print(f"✅ Verification email sent successfully to {user.email}")
         return True
-       
+
     except Exception as e:
         print(f"❌ Failed to send verification email to {user.email}: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
+
+def verify_email(request):
+    token = request.GET.get('token')
+    if not token:
+        messages.error(request, "❌ No token provided.")
+        return redirect('home')
+
+    try:
+        # ✅ Safe lookup
+        profile = UserProfile.objects.get(verification_token=token)
+        user = profile.user
+        profile.email_verified = True
+        profile.verification_token = ''
+        profile.save(update_fields=['email_verified', 'verification_token'])
+        
+        if not request.user.is_authenticated:
+            login(request, user)
+        messages.success(request, "✅ Email verified!")
+        return redirect('dashboard')
+        
+    except UserProfile.DoesNotExist:
+        messages.error(request, "❌ Invalid or expired verification link.")
+        return redirect('home')
 
 @csrf_exempt
 def signup(request):
@@ -328,23 +353,19 @@ def api_verify_email(request):
         return JsonResponse({'success': True, 'message': 'Email verified'})
     return JsonResponse({'error': 'Invalid token'}, status=400)
 
-
 @csrf_exempt
 def api_signup(request):
-    """Pure API signup — no HTML, JSON-only"""
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-    # Only accept JSON for API
     if request.content_type != 'application/json':
         return JsonResponse({'error': 'Content-Type must be application/json'}, status=400)
 
     try:
         data = json.loads(request.body)
-        email = data.get('email', '').strip()
+        email = data.get('email', '').strip().lower()
         name = data.get('name', '').strip()
 
-        # 🔑 Accept flexible password fields: "password", or "password1"/"password2"
         password = data.get('password', '').strip()
         confirm = data.get('password2', password).strip()
         if not password:
@@ -353,13 +374,13 @@ def api_signup(request):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
-    # ✅ 1. Required
+    # ✅ 1. Required fields
     if not email:
         return JsonResponse({'error': 'Email is required.'}, status=400)
     if not password:
         return JsonResponse({'error': 'Password is required.'}, status=400)
 
-    # ✅ 2. Match
+    # ✅ 2. Password match
     if confirm != password:
         return JsonResponse({'error': 'Passwords don’t match.'}, status=400)
 
@@ -377,22 +398,21 @@ def api_signup(request):
             'error': 'Too many signup attempts. Try again in 1 hour.'
         }, status=429)
 
-    # ✅ 5. Duplicate
+    # ✅ 5. Duplicate email — ONLY ONCE (critical fix)
     if User.objects.filter(email__iexact=email).exists():
         return JsonResponse({
             'error': 'An account with this email already exists.'
         }, status=400)
 
-    # ✅ 6. Password strength (Django built-in)
+    # ✅ 6. Password strength
     try:
-        temp_user = User(email=email, username=email)
+        temp_user = User(email=email)
         validate_password(password, user=temp_user)
     except ValidationError as e:
         return JsonResponse({'error': ' '.join(e.messages)}, status=400)
 
-    # ✅ 7. Create
+    # ✅ 7. Create user
     try:
-        # ✅ Generate unique username to avoid 500 on duplicate
         base_username = email.split('@')[0].lower()
         username = base_username
         counter = 1
@@ -407,9 +427,9 @@ def api_signup(request):
             first_name=name,
             is_active=True
         )
-        
-        # ✅ Safe UserProfile creation
-        profile, _ = UserProfile.objects.get_or_create(
+
+        # Safe profile creation
+        UserProfile.objects.get_or_create(
             user=user,
             defaults={'email_verified': False}
         )
@@ -417,25 +437,21 @@ def api_signup(request):
         import traceback
         print("🚨 SIGNUP ERROR:", str(e))
         traceback.print_exc()
-        return JsonResponse({'error': f'Internal error: {str(e)}'}, status=500)
+        return JsonResponse({'error': 'Account creation failed.'}, status=500)
 
     cache.set(f"signup_{ip}", attempts + 1, 3600)
 
-    # ✅ Send verification email
+    # Send verification
     email_sent = send_verification_email(user)
-    if not email_sent:
-        user.userprofile.email_verified = True
-        user.userprofile.save()
 
     return JsonResponse({
         'message': 'Account created successfully!',
         'user_id': user.id,
         'email': user.email,
         'name': user.first_name,
-        'email_verified': user.userprofile.email_verified,
+        'email_verified': False,
         'verification_email_sent': email_sent
     }, status=201)
-
 
 @csrf_exempt
 def api_login(request):
