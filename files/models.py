@@ -1,4 +1,4 @@
-# C:\Users\Navy\dropvault\files\models.py
+# dropvault\files\models.py
 import os
 import uuid
 from django.db import models
@@ -43,8 +43,8 @@ class FileLog(models.Model):
 
 
 class SharedLink(models.Model):
-    file = models.ForeignKey(File, on_delete=models.CASCADE)
-    owner = models.ForeignKey(User, on_delete=models.CASCADE)
+    file = models.ForeignKey(File, on_delete=models.CASCADE, related_name='shared_links')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='shared_links')
     slug = models.CharField(max_length=12, unique=True, db_index=True)
     token = models.CharField(max_length=64, unique=True, null=True, blank=True)
     max_downloads = models.PositiveIntegerField(default=5)
@@ -54,6 +54,8 @@ class SharedLink(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    is_email_only = models.BooleanField(default=False)  # ← ADD THIS
+
 
     def save(self, *args, **kwargs):
         if not self.slug:

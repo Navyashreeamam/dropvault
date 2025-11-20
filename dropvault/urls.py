@@ -12,8 +12,8 @@ urlpatterns = [
     path('accounts/', include('allauth.urls')),
     path('accounts/', include('accounts.urls')),
     path('files/', include('files.urls')),
-    path('s/<str:slug>/', sharingviews.access_shared_file, name='shared_file'),
-    path('s/<str:slug>/download/', sharingviews.download_shared_file, name='download_shared_file'),
+    path('s/<slug:slug>/', sharingviews.SharedFileView.as_view(), name='shared_file'),
+    path('s/<slug:slug>/download/', sharingviews.SharedFileView.as_view(), {'action': 'download'}, name='shared_file_download'),
     path('', accounts_views.home, name='home'),
     path('dashboard/', login_required(file_views.dashboard), name='dashboard'),
 ]

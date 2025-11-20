@@ -1,6 +1,7 @@
-from django.shortcuts import redirect
 from django.urls import reverse
+from django.shortcuts import redirect
 from django.contrib import messages
+
 
 class EmailVerificationMiddleware:
     def __init__(self, get_response):
@@ -8,20 +9,27 @@ class EmailVerificationMiddleware:
 
     def __call__(self, request):
         if request.user.is_authenticated:
-            # ✅ Safe check: only proceed if user has profile
-            if hasattr(request.user, 'userprofile'):
-                profile = request.user.userprofile
-                exempt_urls = [
-                    reverse('verify_email'),
+            profile = getattr(request.user, 'userprofile', None)
+            if profile and not profile.email_verified:
+                # ✅ Safety: If user has no email, skip enforcement (but log/alert if needed)
+                user_email = getattr(request.user, 'email', '').strip()
+                if not user_email:
+                    # Optional: Log or warn — but allow access so user can set email
+                    # print(f"⚠️ Middleware bypass: user {request.user.username} has no email")
+                    return self.get_response(request)
+
+                # List of exempt paths (safe to access without email verification)
+                exempt_paths = [
+                    '/accounts/verify-email/',   # covers /accounts/verify-email/?token=...
                     reverse('verify_email_prompt'),
                     reverse('logout'),
-                    '/admin/',          # ← add admin
-                    '/accounts/',       # allauth URLs
+                    '/admin/',
+                    '/accounts/api/',
                 ]
-                if not profile.email_verified and not any(request.path.startswith(url) for url in exempt_urls):
+
+                # Check if current path is exempt
+                if not any(request.path.startswith(path) for path in exempt_paths):
                     messages.warning(request, "Please verify your email to access the dashboard.")
                     return redirect('verify_email_prompt')
+
         return self.get_response(request)
-
-##clicking your verification link → email_verified = True → access granted
-

@@ -5,10 +5,20 @@ import os
 import dj_database_url
 from django.core.management.utils import get_random_secret_key
 from django.core.exceptions import ImproperlyConfigured
+# Add to settings.py (temporary)
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load .env (if exists)
+ENV_PATH = BASE_DIR / '.env'
+if ENV_PATH.exists():
+    from decouple import AutoConfig
+    config = AutoConfig(search_path=BASE_DIR)
+else:
+    from decouple import config  # fallback to system env
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -17,10 +27,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECRET_KEY = "django-insecure-1xvqlw5tn6z)xty#!+fy7ukbzpx8cv*fq5c209v5th4i6k9%8h"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-
-from django.core.exceptions import ImproperlyConfigured
-
-from decouple import config
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-abc123xyz!@#dev-only-do-not-use-in-prod')
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -35,16 +41,14 @@ PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
 ]
 
-# Email
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST')
-EMAIL_PORT = config('EMAIL_PORT', cast=int)
+# Email Configuration — from .env
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='localhost')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='DropVault <no-reply@dropvault.com>')
 
 EMAIL_DEBUG = True
 
@@ -71,6 +75,7 @@ INSTALLED_APPS = [
     'django_otp',
     'django_otp.plugins.otp_totp',
     'django_otp.plugins.otp_static',
+    'corsheaders',
 
     'accounts',
     'files',
@@ -128,7 +133,16 @@ MIDDLEWARE = [
     'django_otp.middleware.OTPMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'accounts.middleware.EmailVerificationMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
 ]
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+CORS_ALLOW_CREDENTIALS = True
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 

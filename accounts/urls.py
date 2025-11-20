@@ -20,7 +20,7 @@ urlpatterns = [
     path('upload-test/', login_required(views.upload_test), name='upload_test'),
     
     # Email Verification
-    path('verify-email/', views.verify_email, name='verify_email'),
+    path('verify-email/<str:token>/', views.verify_email, name='verify_email'),
     path('verify-prompt/', login_required(views.verify_email_prompt), name='verify_email_prompt'),
     
     # MFA/OTP
@@ -30,7 +30,7 @@ urlpatterns = [
     
     # API Endpoints (for testing)
     path('api/', include([
-        path('signup/', views.api_signup, name='api_signup'),
+        path('signup/', views.signup, name='api_signup'),
         path('login/', views.api_login, name='api_login'),
         path('verify-email/', views.api_verify_email, name='api_verify_email'),
     ])),
