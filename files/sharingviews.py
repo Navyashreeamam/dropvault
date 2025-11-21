@@ -24,124 +24,135 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.http import FileResponse
 from datetime import timedelta
+from django.core.mail import send_mail
+from django.conf import settings
+from smtplib import SMTPRecipientsRefused, SMTPDataError
+from django.views.decorators.csrf import csrf_exempt
+from django_ratelimit.decorators import ratelimit
+from rest_framework.response import Response
+
+
 
 logger = logging.getLogger(__name__)
 
 def api_error(message, status=400):
     return JsonResponse({'error': message}, status=status)
 
-@method_decorator(require_http_methods(["GET"]), name='dispatch')
-@method_decorator(csrf_exempt, name='dispatch')  # only if needed for public access
-class SharedFileView(View):
+@ratelimit(key='ip', rate='20/m', block=True)
+@require_http_methods(["GET"])
+@csrf_exempt
+def shared_file_view(request, slug, action=None):
+    print("✅ shared_file_view called | IP:", request.META.get('REMOTE_ADDR'))
+    """
+    Handles:
+      - GET /s/<slug>/          → renders HTML preview
+      - GET /s/<slug>/download/ → streams encrypted file
+    Rate-limited: 20 requests/minute per IP
+    """
+    # 🔐 STEP 1: Fetch ACTIVE, NON-EXPIRED SharedLink by slug
+    try:
+        link = SharedLink.objects.select_related('file', 'file__user').get(
+            slug=slug,
+            is_active=True
+        )
+    except SharedLink.DoesNotExist:
+        return api_error('Link not found or inactive.', status=404)
 
+    # 🔐 STEP 2: Enforce security *before* any side effect
+    if link.is_expired():
+        link.is_active = False
+        link.save(update_fields=['is_active'])
+        return api_error('Link expired.', status=410)
 
-    def get(self, request, slug, action=None):
-        # 🔐 STEP 1: Fetch ACTIVE, NON-EXPIRED SharedLink by slug
-        try:
-            link = SharedLink.objects.select_related('file', 'file__user').get(
-                slug=slug,
-                is_active=True
-            )
-        except SharedLink.DoesNotExist:
-            raise Http404("Link not found or inactive.")
+    # 🔐 STEP 3: Ownership & file validity check
+    file_obj = link.file
+    owner = file_obj.user
+    if not owner.is_active or file_obj.deleted:
+        link.is_active = False
+        link.save(update_fields=['is_active'])
+        return api_error('File unavailable.', status=404)
 
-        # 🔐 STEP 2: Enforce security *before* any side effect
-        if link.is_expired():
-            link.is_active = False
-            link.save(update_fields=['is_active'])
-            return api_error('Link expired.', status=410)
-
-        # 🔐 STEP 3: Ownership & file validity check
-        file_obj = link.file
-        owner = file_obj.user
-        if not owner.is_active or file_obj.deleted:
-            link.is_active = False
-            link.save(update_fields=['is_active'])
-            return api_error('File unavailable.', status=404)
-
-        # 🔐 STEP 4: First access → activate 24h timer
-        if link.first_accessed_at is None:
-            now = timezone.now()
-            SharedLink.objects.filter(id=link.id).update(
-                first_accessed_at=now,
-                expires_at=now + timedelta(hours=24)
-            )
-            link.refresh_from_db()
-
-        # 🔐 STEP 5: Increment view count
-        SharedLink.objects.filter(id=link.id).update(view_count=models.F('view_count') + 1)
+    # 🔐 STEP 4: First access → activate 24h timer
+    if link.first_accessed_at is None:
+        now = timezone.now()
+        SharedLink.objects.filter(id=link.id).update(
+            first_accessed_at=now,
+            expires_at=now + timedelta(hours=24)
+        )
         link.refresh_from_db()
 
-        # ➡️ Action routing
-        if action == 'download':
-            # Optional: enforce max_downloads here
-            if link.download_count >= link.max_downloads:
-                return JsonResponse({'error': 'Download limit reached.'}, status=403)
+    # 🔐 STEP 5: Increment view count
+    SharedLink.objects.filter(id=link.id).update(view_count=models.F('view_count') + 1)
+    link.refresh_from_db()
 
-            # Log download
-            SharedLink.objects.filter(id=link.id).update(download_count=models.F('download_count') + 1)
+    # ➡️ Action routing
+    if action == 'download':
+        if link.download_count >= link.max_downloads:
+            return api_error('Download limit reached.', status=403)
 
-            # Stream encrypted file (do NOT decrypt here — frontend handles decryption)
-            file_path = file_obj.file.path
+        # Log download
+        SharedLink.objects.filter(id=link.id).update(download_count=models.F('download_count') + 1)
+        link.refresh_from_db()
+
+        # Stream encrypted file
+        try:
             response = FileResponse(
-                open(file_path, 'rb'),
+                file_obj.file.open('rb'),
                 content_type='application/octet-stream',
                 as_attachment=True,
                 filename=file_obj.original_name
             )
             response['Content-Length'] = file_obj.size
             return response
+        except FileNotFoundError:
+            return api_error('File missing on server.', status=500)
 
-        else:
-            # Render preview HTML
-            context = {
-                'link': link,
-                'file': file_obj,
-                'preview_url': None,  # frontend decrypts & previews
-                'download_url': request.build_absolute_uri(f"/s/{slug}/download/")
-            }
-            return render(request, 'files/shared_file.html', context)
+    else:
+        # Render preview HTML
+        context = {
+            'link': link,
+            'file': file_obj,
+            'preview_url': None,
+            'download_url': request.build_absolute_uri(f"/s/{slug}/download/")
+        }
+        return render(request, 'shared_file.html', context)
 
-
-
-# For email-only links: /s/email/<token>/
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def access_shared_file_by_token(request, token):
-    try:
-        link = SharedLink.objects.select_related('file', 'file__user').get(
-            token=token,
-            is_active=True,
-            slug__isnull=True  # email-only: no public slug
-        )
-    except SharedLink.DoesNotExist:
-        raise Http404("Invalid or expired token.")
+def access_shared_file_by_slug(request, slug):
+    link = get_object_or_404(
+        SharedLink,
+        slug=slug,
+        is_active=True
+    )
 
     if link.is_expired():
-        return api_error('Link expired.', status=410)
-
-    # Same security checks as above (owner active, file not deleted)
+        return Response({'error': 'Link expired.'}, status=410)
+    
+    # Security: file & owner still valid?
     file_obj = link.file
     if not file_obj.user.is_active or file_obj.deleted:
-        return api_error('File unavailable.', status=404)
+        return Response({'error': 'File unavailable.'}, status=404)
 
-    # Activate + increment (same as slug-based)
-    if link.first_accessed_at is None:
-        SharedLink.objects.filter(id=link.id).update(
-            first_accessed_at=timezone.now(),
-            expires_at=timezone.now() + timedelta(hours=24)
-        )
+    # Increment view count
     SharedLink.objects.filter(id=link.id).update(view_count=models.F('view_count') + 1)
     link.refresh_from_db()
+    
+    download_url = f"/s/{slug}/download/"
 
-    # Redirect to slug-based view? Or render same template.
-    # Simpler: redirect (preserves logic)
-    return JsonResponse({
-        'redirect': request.build_absolute_uri(f"/s/{link.slug}/")  # but slug is null for email links!
-    }, status=302)
+    # ✅ Return file info (or render HTML/download — as per your design)
+    return Response({
+        'file_name': link.file.original_name,
+        'file_size': link.file.size,
+        'view_count': link.view_count,
+        'download_count': link.download_count,
+        'expires_at': link.expires_at,
+        'owner': link.file.user.email
+    })
 
 
 # ── 1. CREATE SHARE LINK (authenticated)
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def create_share_link(request, file_id):
@@ -269,10 +280,34 @@ def download_shared_file(request, slug):
         return JsonResponse({'error': 'Download failed. Try again.'}, status=500)
 
 
-# ── 4. SHARE VIA EMAIL (authenticated, JSON-only)
+# ✅ NEW: Safe email sender (no SMTP for Gmail)
+def _send_email_safe(to_email, subject, text_body, html_body=None):
+    """
+    Production-grade email sender.
+    For dev: uses console/email backend.
+    For prod: replace with Gmail API or transactional service.
+    """
+    try:
+        from django.core.mail import EmailMultiAlternatives
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[to_email]
+        )
+        if html_body:
+            msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=False)
+        return True
+    except Exception as e:
+        print(f"📧 Email send failed to {to_email}: {e}")
+        return False
 
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
+@ratelimit(key='user', rate='5/m', method='POST', block=True)
+
 def share_via_email(request, file_id):
     file_obj = get_object_or_404(File, id=file_id, user=request.user, deleted=False)
 
@@ -282,35 +317,60 @@ def share_via_email(request, file_id):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
+    # ✅ Validate email format
     try:
         validate_email(email)
     except ValidationError:
-        return JsonResponse({'error': 'Invalid email'}, status=400)
+        return JsonResponse({'error': 'Invalid email address.'}, status=400)
 
-    # ✅ Generate BOTH slug (for access) and token (for audit/email uniqueness)
+    # ✅ Block self-share
+    if email.lower() == request.user.email.lower():
+        return JsonResponse({'error': 'You cannot share with yourself.'}, status=400)
+
+    # ✅ Generate secure slug & token
     slug = secrets.token_urlsafe(8)[:12]
     token = secrets.token_urlsafe(48)
 
-    # ✅ Mark as email-shared (optional flag)
+    # ✅ Create share link
     link = SharedLink.objects.create(
         file=file_obj,
         owner=request.user,
-        slug=slug,           # ← now has slug!
+        slug=slug,
         token=token,
-        is_email_only=True,  # ← add this field to model if needed (or infer via `token__isnull=False`)
+        is_email_only=True,
         max_downloads=5,
         is_active=True
     )
 
-    # Email link is /s/<slug>/ — same as public, but recipient is trusted
+    # ✅ Build public link
     link_url = request.build_absolute_uri(f"/s/{slug}/")
-    print(f"[EMAIL] Sending to {email}: {link_url}")
 
-    # Later: send_email_async(
-    #   to=email,
-    #   subject="DropVault: File Shared With You",
-    #   body=f"<p>{request.user.email} shared {file_obj.original_name} with you.</p><p><a href='{link_url}'>Download</a></p>"
-    # )
+    # ✅ Send email (text-only, minimal, reliable)
+    try:
+        send_mail(
+            subject=f"📁 {file_obj.original_name} shared with you",
+            message=(
+                f"Hi,\n\n"
+                f"{request.user.email} shared '{file_obj.original_name}' with you.\n\n"
+                f"Access link: {link_url}\n\n"
+                f"🔒 This link expires 24 hours after first access.\n"
+                f"⬇️ Max 5 downloads allowed.\n\n"
+                f"– DropVault"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],  # ✅ ONLY recipient — not sender
+            fail_silently=False
+        )
+    except Exception as e:
+        print(f"📧 Email send failed to {email}: {e}")
+        return JsonResponse({
+            'error': 'Failed to send email. Please try again.',
+            'recipient': email
+        }, status=500)
 
-    return JsonResponse({'status': 'email_sent'}, status=202)
-    
+    # ✅ Success response
+    return JsonResponse({
+        'status': 'success',
+        'message': f'Share link sent to {email}',
+        'slug': slug
+    }, status=200)

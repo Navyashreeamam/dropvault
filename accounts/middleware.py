@@ -20,15 +20,22 @@ class EmailVerificationMiddleware:
 
                 # List of exempt paths (safe to access without email verification)
                 exempt_paths = [
-                    '/accounts/verify-email/',   # covers /accounts/verify-email/?token=...
-                    reverse('verify_email_prompt'),
-                    reverse('logout'),
-                    '/admin/',
-                    '/accounts/api/',
+                    '/accounts/verify-email/',    # for verification links
+                    '/s',
+                    reverse('verify_email_prompt'), # /accounts/verify-prompt/
+                    reverse('logout'),              # /accounts/logout/
+                    '/admin/',                      # Django admin
+                    '/accounts/api/',               # all auth APIs (signup/login)
+                    '/files/upload/',               # ✅ ADD THIS
+                    '/files/list/',                 # ✅ ADD THIS
+                    '/files/delete/',               # ✅ ADD THIS
+                    '/files/share/',                # ✅ ADD THIS
+                    '/files/trash/',                # ✅ ADD THIS
                 ]
-
                 # Check if current path is exempt
-                if not any(request.path.startswith(path) for path in exempt_paths):
+                current_path = request.path.rstrip('/')
+
+                if not any(current_path.startswith(path.rstrip('/')) for path in exempt_paths):
                     messages.warning(request, "Please verify your email to access the dashboard.")
                     return redirect('verify_email_prompt')
 

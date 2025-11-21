@@ -1,5 +1,5 @@
 from pathlib import Path
-from decouple import config
+from decouple import config, UndefinedValueError
 
 import os
 import dj_database_url
@@ -42,13 +42,17 @@ PASSWORD_HASHERS = [
 ]
 
 # Email Configuration — from .env
-EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = config('EMAIL_HOST', default='localhost')
-EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='DropVault <no-reply@dropvault.com>')
+try:
+    EMAIL_BACKEND = config('EMAIL_BACKEND')
+    EMAIL_HOST = config('EMAIL_HOST')
+    EMAIL_PORT = config('EMAIL_PORT', cast=int)
+    EMAIL_USE_TLS = config('EMAIL_USE_TLS', cast=bool)
+    EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+    DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
+except UndefinedValueError:
+    print("⚠️  .env not found — using console email backend")
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 EMAIL_DEBUG = True
 
@@ -70,7 +74,8 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'rest_framework.authtoken',
-
+    'django_ratelimit',
+    
     # OTP (2FA)
     'django_otp',
     'django_otp.plugins.otp_totp',
@@ -203,6 +208,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880   # 5 MB
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dropvault-rate-limit',
     }
 }
 

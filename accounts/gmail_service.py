@@ -1,0 +1,37 @@
+# accounts/gmail_service.py
+import os
+import pickle
+from django.conf import settings
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+# If modifying these scopes, delete token.pickle
+SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+
+def get_gmail_service(user_email):
+    """Get authorized Gmail service for a specific user (server-to-server).
+       For production, use service account or per-user OAuth."""
+    
+    # For dev: use single admin account (navyashreeamam@gmail.com)
+    creds = None
+    token_path = os.path.join(settings.BASE_DIR, 'token.pickle')
+    
+    if os.path.exists(token_path):
+        with open(token_path, 'rb') as token:
+            creds = pickle.load(token)
+    
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            # Only for local dev — in prod, use service account
+            flow = InstalledAppFlow.from_client_secrets_file(
+                os.path.join(settings.BASE_DIR, 'credentials.json'), SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+        with open(token_path, 'wb') as token:
+            pickle.dump(creds, token)
+
+    return build('gmail', 'v1', credentials=creds)

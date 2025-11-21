@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from .models import File, Trash, FileLog
 from .bloomfilter import BloomFilter
+from django.views.decorators.csrf import csrf_exempt
 
 # Constants
 ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.docx', '.txt', '.mp4'}
@@ -67,7 +68,7 @@ def _encrypt_chunk(plaintext_chunk):
     tag = encryptor.tag
     return ciphertext, key, nonce, tag
 
-
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def upload_file(request):

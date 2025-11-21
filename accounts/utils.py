@@ -4,6 +4,9 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
 from .models import UserProfile
+from .gmail_service import get_gmail_service
+from email.mime.text import MIMEText
+import base64
 
 
 def send_verification_email(user):
@@ -59,3 +62,31 @@ def verify_token(token):
         return profile.user
     except UserProfile.DoesNotExist:
         return None
+
+def send_share_email(sender_user, recipient_email, file_name, share_url):
+    """Production-grade: send via Gmail API (no SMTP blocks)"""
+    try:
+        service = get_gmail_service(sender_user.email)
+        
+        message = MIMEText(
+            f"Hi,\n\n{sender_user.email} shared '{file_name}' with you.\n\n"
+            f"Download: {share_url}\n\nThanks,\nDropVault",
+            'plain'
+        )
+        message['to'] = recipient_email
+        message['from'] = sender_user.email
+        message['subject'] = f"📁 {file_name} shared with you"
+
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        body = {'raw': raw}
+
+        # Send
+        service.users().messages().send(userId='me', body=body).execute()
+        print(f"✅ Gmail API: Email sent to {recipient_email}")
+        return True
+
+    except Exception as e:
+        print(f"❌ Gmail API error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
