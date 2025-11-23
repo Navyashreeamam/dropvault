@@ -11,6 +11,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
     path('accounts/', include('accounts.urls')),
+    path('api/', include('files.urls')),
+
     path('files/', include('files.urls')),
     path('s/<slug:slug>/', sharingviews.shared_file_view, name='shared_file'),
     path('s/<slug:slug>/download/', sharingviews.shared_file_view, {'action': 'download'}, name='shared_file_download'),

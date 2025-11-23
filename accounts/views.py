@@ -24,6 +24,8 @@ from .models import UserProfile
 from django.contrib.auth.password_validation import validate_password
 from django.views.decorators.http import require_http_methods
 from .utils import send_verification_email
+from django.contrib.auth import get_user_model
+
 
 @csrf_exempt
 def test_email(request):
@@ -149,7 +151,7 @@ def signup(request):
             'verification_email_sent': email_sent
         }, status=201)
 
-
+@csrf_exempt
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
@@ -183,6 +185,7 @@ def login_view(request):
     return render(request, 'login.html')
 
 # Change function signature to accept `token`
+@csrf_exempt
 def verify_email(request, token):  # ← ADD `token` param
     # token = request.GET.get('token')  # ❌ remove this
     # keep rest same
@@ -304,6 +307,47 @@ def api_verify_email(request):
         return JsonResponse({'success': True, 'message': 'Email verified'})
     return JsonResponse({'error': 'Invalid token'}, status=400)
 
+
+User = get_user_model()
+
+@csrf_exempt  # ⚠️ Only for demo! Use DRF or proper token auth in production
+def api_signup(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        password = data.get('password')
+        confirm_password = data.get('confirm_password')
+        username = data.get('username', email.split('@')[0])
+
+        if not email or not password:
+            return JsonResponse({'error': 'Email and password required'}, status=400)
+
+        if password != confirm_password:
+            return JsonResponse({'error': 'Passwords do not match'}, status=400)
+
+        if User.objects.filter(email=email).exists():
+            return JsonResponse({'error': 'Email already registered'}, status=400)
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password
+        )
+        # Optional: Trigger email verification here (e.g., send_verification_email(user))
+        return JsonResponse({
+            'message': 'User created successfully',
+            'user': {'id': user.id, 'email': user.email}
+        }, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+    
+
 @csrf_exempt
 def api_login(request):
     if request.method != 'POST':
@@ -347,5 +391,6 @@ def api_login(request):
 # accounts/views.py
 def home(request):
     if request.user.is_authenticated:
-        return redirect('dashboard')
-    return render(request, 'home.html')
+        return render(request, 'dashboard.html')  # or redirect('/dashboard/')
+    else:
+        return render(request, 'accounts/home.html')  # ← MUST EXIST

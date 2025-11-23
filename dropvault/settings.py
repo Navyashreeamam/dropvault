@@ -106,12 +106,30 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 
+# settings.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+    },
+}
+
+
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomSocialAccountAdapter'
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'  # allauth's auto-verify
 
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/'
 
+SKIP_EMAIL_VERIFICATION = True
 
 # settings.py
 
@@ -119,7 +137,7 @@ SESSION_COOKIE_SECURE = False
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = False
-CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False
 
 CSRF_COOKIE_SAMESITE = 'Lax'
 
@@ -127,6 +145,7 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (seconds)
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
     'whitenoise.middleware.WhiteNoiseMiddleware',
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -138,7 +157,6 @@ MIDDLEWARE = [
     'django_otp.middleware.OTPMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'accounts.middleware.EmailVerificationMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
 ]
 
@@ -228,7 +246,7 @@ CACHES = {
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.TokenAuthentication',  # For API tokens
+        'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.UserRateThrottle'],

@@ -1,4 +1,6 @@
 # DropVault/files/views.py
+from asyncio.log import logger
+import logging
 import os
 import hashlib
 import secrets
@@ -18,6 +20,7 @@ from cryptography.hazmat.backends import default_backend
 from .models import File, Trash, FileLog
 from .bloomfilter import BloomFilter
 from django.views.decorators.csrf import csrf_exempt
+
 
 # Constants
 ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.docx', '.txt', '.mp4'}
