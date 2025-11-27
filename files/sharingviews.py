@@ -1,7 +1,7 @@
 # dropvault/files/sharingviews.py — API-ONLY VERSION
 
 import logging
-from os import link
+import os
 import secrets
 import json
 from django.http import JsonResponse, HttpResponse, Http404
@@ -33,6 +33,7 @@ from rest_framework.response import Response
 
 
 
+
 logger = logging.getLogger(__name__)
 
 def api_error(message, status=400):
@@ -49,7 +50,6 @@ def shared_file_view(request, slug, action=None):
       - GET /s/<slug>/download/ → streams encrypted file
     Rate-limited: 20 requests/minute per IP
     """
-    # 🔐 STEP 1: Fetch ACTIVE, NON-EXPIRED SharedLink by slug
     try:
         link = SharedLink.objects.select_related('file', 'file__user').get(
             slug=slug,
@@ -108,14 +108,30 @@ def shared_file_view(request, slug, action=None):
             return api_error('File missing on server.', status=500)
 
     else:
-        # Render preview HTML
-        context = {
-            'link': link,
-            'file': file_obj,
-            'preview_url': None,
-            'download_url': request.build_absolute_uri(f"/s/{slug}/download/")
-        }
-        return render(request, 'shared_file.html', context)
+        # ✅ API-only response — no templates, no user context, no email-verify interference
+
+        ext = os.path.splitext(file_obj.original_name)[1].lstrip('.').lower() or 'unknown'
+
+        return JsonResponse({
+            'success': True,
+            'file': {
+                'name': file_obj.original_name,
+                'size': file_obj.size,
+                'type': ext,
+                'uploaded_at': file_obj.uploaded_at.isoformat(),
+            },
+            'link': {
+                'slug': link.slug,
+                'view_count': link.view_count,
+                'download_count': link.download_count,
+                'max_downloads': link.max_downloads,
+                'first_accessed_at': link.first_accessed_at.isoformat() if link.first_accessed_at else None,
+                'expires_at': link.expires_at.isoformat() if link.expires_at else None,
+                'is_expired': link.is_expired(),
+                'owner_email': link.owner.email,
+            },
+            'download_url': request.build_absolute_uri(f"/s/{slug}/download/"),
+        })
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

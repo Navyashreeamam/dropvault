@@ -1,14 +1,16 @@
 {
-  "version": 2,
-  "functions": {
-    "vercel.py": {
-      "runtime": "python3.11"
+  "builds": [
+    {
+      "src": "vercel.py",
+      "use": "@vercel/python",
+      "config": { "maxLambdaSize": "15mb" , "runtime": "python3.9" }
     }
-  },
+  ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/vercel.py"
+      "dest": "dropvault/wsgi.py"
     }
+  
   ]
 }

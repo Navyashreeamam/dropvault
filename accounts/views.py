@@ -393,4 +393,4 @@ def home(request):
     if request.user.is_authenticated:
         return render(request, 'dashboard.html')  # or redirect('/dashboard/')
     else:
-        return render(request, 'accounts/home.html')  # ← MUST EXIST
+        return render(request, 'home.html')  # ← MUST EXIST

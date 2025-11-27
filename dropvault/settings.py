@@ -5,9 +5,14 @@ import os
 import dj_database_url
 from django.core.management.utils import get_random_secret_key
 from django.core.exceptions import ImproperlyConfigured
-# Add to settings.py (temporary)
+from decouple import config, UndefinedValueError
 import logging
 logging.basicConfig(level=logging.DEBUG)
+
+from decouple import config, UndefinedValueError
+
+
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,10 +32,28 @@ else:
 # SECRET_KEY = "django-insecure-1xvqlw5tn6z)xty#!+fy7ukbzpx8cv*fq5c209v5th4i6k9%8h"
 
 # SECURITY WARNING: don't run with debug turned on in production!
+SECRET_KEY = config(
+    'SECRET_KEY',
+    default='django-insecure-abc123xyz!@#dev-only-do-not-use-in-prod'
+)
 
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-abc123xyz!@#dev-only-do-not-use-in-prod')
-DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = config('DEBUG', default=True, cast=bool)
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost').split(',')
+
+
+
+# For shared links & public file access:
+CSRF_TRUSTED_ORIGINS = ['https://*.vercel.app']
+
+
+# --- DATABASE ---
+import dj_database_url
+
+DATABASE_URL = config('DATABASE_URL')
+DATABASES = {
+    'default': dj_database_url.parse(DATABASE_URL)
+}
 
 
 # password settings.py
@@ -81,6 +104,8 @@ INSTALLED_APPS = [
     'django_otp.plugins.otp_totp',
     'django_otp.plugins.otp_static',
     'corsheaders',
+    
+    'whitenoise.runserver_nostatic',
 
     'accounts',
     'files',
@@ -147,6 +172,7 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -293,7 +319,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "static/"
+
+# --- STATIC (for DRF UI/icons) ---
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
