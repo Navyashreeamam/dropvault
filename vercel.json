@@ -1,16 +1,13 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "functions": {
     "vercel.py": {
-      "runtime": "python3.9"
+      "runtime": "python3.9",
+      "memory": 1024,
+      "maxDuration": 60
     }
   },
-  "builds": [
-    {
-      "src": "vercel.py",
-      "use": "@vercel/python"
-    }
-  ],
   "routes": [
     {
       "src": "/(.*)",
