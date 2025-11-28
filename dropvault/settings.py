@@ -5,12 +5,8 @@ import os
 import dj_database_url
 from django.core.management.utils import get_random_secret_key
 from django.core.exceptions import ImproperlyConfigured
-from decouple import config, UndefinedValueError
 import logging
 logging.basicConfig(level=logging.DEBUG)
-
-from decouple import config, UndefinedValueError
-
 
 
 
@@ -28,32 +24,12 @@ else:
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 # SECRET_KEY = "django-insecure-1xvqlw5tn6z)xty#!+fy7ukbzpx8cv*fq5c209v5th4i6k9%8h"
 
-# SECURITY WARNING: don't run with debug turned on in production!
-SECRET_KEY = config(
-    'SECRET_KEY',
-    default='django-insecure-abc123xyz!@#dev-only-do-not-use-in-prod'
-)
+SECRET_KEY = config('SECRET_KEY', default='unsafe-default-for-build-only')
+DEBUG = config('DEBUG', default=False, cast=bool)
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
 
-DEBUG = config('DEBUG', default=True, cast=bool)
-
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost').split(',')
-
-
-
-# For shared links & public file access:
-CSRF_TRUSTED_ORIGINS = ['https://*.vercel.app']
-
-
-# --- DATABASE ---
-import dj_database_url
-
-DATABASE_URL = config('DATABASE_URL')
-DATABASES = {
-    'default': dj_database_url.parse(DATABASE_URL)
-}
 
 
 # password settings.py
@@ -71,8 +47,9 @@ try:
     EMAIL_PORT = config('EMAIL_PORT', cast=int)
     EMAIL_USE_TLS = config('EMAIL_USE_TLS', cast=bool)
     EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
     DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
+    STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='sk_dummy')
 except UndefinedValueError:
     print("⚠️  .env not found — using console email backend")
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
@@ -105,8 +82,6 @@ INSTALLED_APPS = [
     'django_otp.plugins.otp_static',
     'corsheaders',
     
-    'whitenoise.runserver_nostatic',
-
     'accounts',
     'files',
 ]
@@ -120,12 +95,12 @@ AUTHENTICATION_BACKENDS = [
 
 SITE_URL = 'http://localhost:8000'
 DEFAULT_FROM_EMAIL = 'navyashreeamam@gmail.com'
-# Google OAuth
+
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
-            'client_id': config('GOOGLE_CLIENT_ID'),
-            'secret': config('GOOGLE_SECRET'),
+            'client_id': config('GOOGLE_CLIENT_ID', default='dummy-google-client-id'),
+            'secret': config('GOOGLE_SECRET', default='dummy-google-secret'),
         }
     }
 }
@@ -172,8 +147,7 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # ← Add this
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -183,7 +157,6 @@ MIDDLEWARE = [
     'django_otp.middleware.OTPMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'accounts.middleware.EmailVerificationMiddleware',
-    'django.middleware.security.SecurityMiddleware',
 ]
 
 CORS_ALLOWED_ORIGINS = [
@@ -218,18 +191,17 @@ WSGI_APPLICATION = "dropvault.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-default_db_url = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
 
+# ✅ Keep only this DATABASES block
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', default='dropvault_db'),
+        'USER': config('DB_USER', default='navya'),
+        'PASSWORD': config('DB_PASSWORD', default='dummy'),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
     }
-}
-
-# Database
-DATABASES = {
-    'default': dj_database_url.parse(config('DATABASE_URL'))
 }
 
 
@@ -244,17 +216,9 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
 # Prevent huge uploads
-DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880   # 5 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880
+FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
 
-
-# cache frunction for login throttling
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'dropvault-rate-limit',
-    }
-}
 
 CACHES = {
     "default": {
@@ -262,8 +226,6 @@ CACHES = {
         "LOCATION": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            # If you prefer explicit password instead of embedding in URL:
-            # "PASSWORD": os.getenv("REDIS_PASSWORD", None),
         },
     }
 }
@@ -278,9 +240,6 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.UserRateThrottle'],
     'DEFAULT_THROTTLE_RATES': {'user': '100/day'},  # Prevent abuse
 }
-
-# Secure file handling
-FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB global limit
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -322,8 +281,7 @@ USE_TZ = True
 
 # --- STATIC (for DRF UI/icons) ---
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
