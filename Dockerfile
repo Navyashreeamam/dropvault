@@ -1,4 +1,3 @@
-# Dockerfile
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# ✅ CRITICAL: Set ALL needed env vars *only for collectstatic*, inline
+# Set dummy env vars only for collectstatic
 RUN SECRET_KEY=build-dummy \
     DEBUG=False \
     ALLOWED_HOSTS=localhost \
@@ -28,6 +27,8 @@ RUN SECRET_KEY=build-dummy \
     DB_HOST=localhost \
     python manage.py collectstatic --noinput
 
-EXPOSE 8000
+# Copy and use ONLY entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-CMD ["gunicorn", "dropvault.wsgi:application", "--bind", "0.0.0.0:8000"]
+ENTRYPOINT ["/entrypoint.sh"]
