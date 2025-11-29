@@ -15,6 +15,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN chmod +x /start.sh
+
 COPY . .
 
 # Set dummy env vars only for collectstatic

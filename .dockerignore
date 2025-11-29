@@ -14,3 +14,6 @@ venv/
 node_modules/
 media/          # ← We'll use external storage in prod; exclude local uploads
 staticfiles/    # ← Collected in Docker build, so no need to copy dev static
+
+railway.json
+start.sh

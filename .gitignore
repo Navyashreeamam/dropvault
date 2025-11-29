@@ -8,3 +8,7 @@ staticfiles/
 .DS_Store
 .vscode/
 .env
+
+# DO NOT ignore these
+railway.json
+start.sh
