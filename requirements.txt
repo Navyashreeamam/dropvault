@@ -13,6 +13,7 @@ django-ratelimit==4.1.0
 django-otp==1.6.3
 qrcode==8.2
 Pillow==10.4.0
+mmh3==5.0.1
 google-auth==2.41.1
 google-auth-oauthlib==1.2.3
 google-auth-httplib2==0.2.1
