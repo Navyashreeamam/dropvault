@@ -1,46 +1,24 @@
 #!/bin/bash
-
 set -e
 
-echo "========================================="
-echo "🚀 Starting DropVault Deployment"
-echo "========================================="
+echo "🚀 Starting DropVault..."
 
-# 1. Run migrations
-echo "📦 Running migrations..."
+# Run migrations
 python manage.py migrate --noinput
 
-# 2. Setup Django Sites framework
-echo "🌐 Setting up sites..."
+# Setup Django Site
 python manage.py shell <<EOF
 from django.contrib.sites.models import Site
-from django.conf import settings
-
-domain = 'dropvault-web-production.up.railway.app'
-site, created = Site.objects.get_or_create(
-    pk=getattr(settings, 'SITE_ID', 1),
-    defaults={'domain': domain, 'name': 'DropVault'}
-)
-if not created:
-    site.domain = domain
-    site.save()
-print(f"✓ Site configured: {domain}")
+Site.objects.get_or_create(pk=1, defaults={'domain': 'dropvault-web-production.up.railway.app', 'name': 'DropVault'})
 EOF
 
-# 3. Collect static files
-echo "🗂️ Collecting static files..."
+# Collect static files
 python manage.py collectstatic --noinput --clear
 
-# 4. Start server
-echo "========================================="
-echo "✅ Setup complete! Starting Gunicorn..."
-echo "========================================="
-
+# Start Gunicorn
 exec gunicorn dropvault.wsgi:application \
     --bind 0.0.0.0:$PORT \
     --workers 2 \
-    --threads 4 \
     --timeout 120 \
     --access-logfile - \
-    --error-logfile - \
-    --log-level info
+    --error-logfile -

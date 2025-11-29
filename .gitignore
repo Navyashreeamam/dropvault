@@ -9,6 +9,3 @@ staticfiles/
 .vscode/
 .env
 
-# DO NOT ignore these
-railway.json
-start.sh
