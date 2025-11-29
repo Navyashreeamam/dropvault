@@ -38,7 +38,7 @@ else:
 # ═══════════════════════════════════════════════════════════
 SECRET_KEY = config(
     'SECRET_KEY',
-    default=get_random_secret_key()
+    default='django-insecure-temp-key-for-build-replace-in-production-settings'
 )
 
 DEBUG = config('DEBUG', default=False, cast=bool)
