@@ -38,11 +38,8 @@ else:
 # ═══════════════════════════════════════════════════════════
 SECRET_KEY = config(
     'SECRET_KEY',
-    default=get_random_secret_key() if not IS_PRODUCTION else None
+    default=get_random_secret_key()
 )
-
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY must be set in production!")
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
