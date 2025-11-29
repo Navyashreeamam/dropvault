@@ -423,3 +423,32 @@ USE_TZ = True
 # 🔑 DEFAULT SETTINGS
 # ═══════════════════════════════════════════════════════════
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# ═══════════════════════════════════════════════════════════
+# 🌐 AUTO-SETUP DJANGO SITES ON STARTUP
+# ═══════════════════════════════════════════════════════════
+if IS_RAILWAY:
+    try:
+        # Only run during runtime, not during collectstatic
+        import sys
+        if 'collectstatic' not in sys.argv and 'migrate' not in sys.argv:
+            from django.contrib.sites.models import Site
+            try:
+                site = Site.objects.get(pk=SITE_ID)
+                if site.domain != 'dropvault-web-production.up.railway.app':
+                    site.domain = 'dropvault-web-production.up.railway.app'
+                    site.name = 'DropVault'
+                    site.save()
+                    print("✓ Updated Site configuration")
+            except Site.DoesNotExist:
+                Site.objects.create(
+                    pk=SITE_ID,
+                    domain='dropvault-web-production.up.railway.app',
+                    name='DropVault'
+                )
+                print("✓ Created Site configuration")
+            except Exception as e:
+                print(f"⚠ Site setup skipped: {e}")
+    except Exception as e:
+        print(f"⚠ Could not auto-setup site: {e}")
