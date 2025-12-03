@@ -1,4 +1,3 @@
-<!-- templates/dashboard.html -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -8,13 +7,29 @@
     body { font-family: Arial, sans-serif; padding: 20px; }
     ul { list-style-type: none; padding: 0; }
     li { padding: 10px 0; border-bottom: 1px solid #eee; }
-    button { margin: 3px 2px; padding: 4px 8px; font-size: 12px; }
+    button { margin: 3px 2px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
     .file-row { display: flex; align-items: center; gap: 8px; }
     .share-group { display: flex; flex-direction: column; gap: 4px; }
     .email-form { display: none; margin-top: 6px; font-size: 12px; }
     .email-form input,
     .email-form select { padding: 2px; font-size: 12px; }
     .link-input { display: none; margin-top: 6px; font-size: 11px; width: 220px; padding: 2px; }
+    
+    /* Tabs styling */
+    .tabs { display: flex; gap: 10px; margin: 20px 0; }
+    .tab { padding: 8px 16px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer; }
+    .tab.active { background: #007bff; color: white; }
+    
+    /* Trash specific styles */
+    .trash-container { display: none; margin-top: 20px; }
+    .file-item { padding: 12px; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px; }
+    .file-info { margin-bottom: 8px; }
+    .file-name { font-weight: bold; }
+    .delete-info { color: #888; font-size: 0.9em; }
+    .days-remaining { display: block; font-weight: bold; }
+    .days-remaining.warning { color: #d32f2f; }
+    .restore-btn { margin-top: 8px; }
+    .no-files { color: #888; font-style: italic; padding: 20px; text-align: center; }
   </style>
 </head>
 <body>
@@ -26,6 +41,29 @@
   <input type="file" name="file" required>
   <button type="submit">Upload File</button>
 </form>
+
+<!-- Tabs Navigation -->
+<div class="tabs">
+  <button id="files-tab" class="tab active">📁 Your Files</button>
+  <button id="trash-tab" class="tab">🗑️ Trash</button>
+</div>
+
+<!-- Files Container -->
+<div id="files-container">
+  <h2>Your Files</h2>
+  <ul id="fileList">
+    <li>Loading files...</li>
+  </ul>
+  <button onclick="loadFiles()">Refresh Files</button>
+</div>
+
+<!-- Trash Container (initially hidden) -->
+<div id="trash-container" class="trash-container">
+  <h2>Trash</h2>
+  <div id="trash-list">
+    <p>Loading trash...</p>
+  </div>
+</div>
 
 <!-- ✅ Shared by You -->
 <div style="margin-top: 30px;">
@@ -54,16 +92,6 @@
     <p style="color: #666;">🕗 No shared links yet.</p>
   {% endif %}
 </div>
-
-<!-- File List -->
-<h2>Your Files</h2>
-<ul id="fileList">
-  <li>Loading files...</li>
-</ul>
-<button onclick="loadFiles()">Refresh Files</button>
-
-<!-- Trash Link -->
-<a href="/files/trash/" style="display: inline-block; margin-top: 10px;">View Trash</a>
 
 <script>
 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -110,7 +138,7 @@ async function loadFiles() {
       document.getElementById('fileList').innerHTML = files.map(f => 
           `<li>
             <div class="file-row">
-              <strong>${f.filename}</strong> (${Math.round(f.size / 1024)} KB)
+              <strong>${f.original_name || f.filename}</strong> (${Math.round(f.size / 1024)} KB)
               <button onclick="deleteFile(${f.id})">🗑️ Delete</button>
               <div class="share-group">
                 <button onclick="toggleEmailForm(${f.id})">📧 Share</button>
@@ -225,8 +253,103 @@ async function deleteFile(id) {
   }
 }
 
-// Load on start
-loadFiles();
+// Add this function to load trash files
+async function loadTrashFiles() {
+    try {
+        const response = await fetch('/files/trash/', {
+            headers: { 'X-CSRFToken': csrfToken }
+        });
+        const data = await response.json();
+        const trashList = document.getElementById('trash-list');
+        
+        if (!trashList) {
+            console.error('Trash list element not found');
+            return;
+        }
+        
+        if (data.files && data.files.length > 0) {
+            trashList.innerHTML = data.files.map(file => `
+                <div class="file-item trash-item">
+                    <div class="file-info">
+                        <span class="file-name">${file.original_name}</span>
+                        <span class="file-size">${formatFileSize(file.size)}</span>
+                        <span class="delete-info">
+                            Deleted: ${new Date(file.deleted_at).toLocaleDateString()}
+                        </span>
+                        <span class="days-remaining ${file.days_remaining < 7 ? 'warning' : ''}">
+                            ${file.days_remaining} days until permanent deletion
+                        </span>
+                    </div>
+                    <button class="btn restore-btn" onclick="restoreFile(${file.id})">
+                        Restore
+                    </button>
+                </div>
+            `).join('');
+        } else {
+            trashList.innerHTML = '<p class="no-files">Trash is empty</p>';
+        }
+    } catch (error) {
+        console.error('Error loading trash:', error);
+        document.getElementById('trash-list').innerHTML = '<p class="no-files">Error loading trash</p>';
+    }
+}
+
+// Add restore function
+async function restoreFile(fileId) {
+    if (!confirm('Restore this file?')) return;
+    
+    try {
+        const response = await fetch(`/files/restore/${fileId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('File restored successfully!');
+            loadTrashFiles();  // Reload trash
+            loadFiles();       // Reload main files
+        } else {
+            alert(data.error || 'Failed to restore file');
+        }
+    } catch (error) {
+        console.error('Error restoring file:', error);
+        alert('Failed to restore file');
+    }
+}
+
+// Helper function for file size formatting
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Tab switching functionality
+document.getElementById('files-tab').addEventListener('click', () => {
+    document.getElementById('files-container').style.display = 'block';
+    document.getElementById('trash-container').style.display = 'none';
+    document.getElementById('files-tab').classList.add('active');
+    document.getElementById('trash-tab').classList.remove('active');
+    loadFiles();
+});
+
+document.getElementById('trash-tab').addEventListener('click', () => {
+    document.getElementById('files-container').style.display = 'none';
+    document.getElementById('trash-container').style.display = 'block';
+    document.getElementById('files-tab').classList.remove('active');
+    document.getElementById('trash-tab').classList.add('active');
+    loadTrashFiles();
+});
+
+// Initial load
+document.addEventListener('DOMContentLoaded', function() {
+    loadFiles();
+});
 </script>
 </body>
 </html>

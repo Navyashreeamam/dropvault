@@ -1,20 +1,20 @@
-<!DOCTYPE html>
-<html>
-<head><title>Sign Up</title></head>
-<body>
-    <h1>Sign Up</h1>
+<!-- MUST have these exact field names -->
+<form method="POST" action="{% url 'signup' %}">
+    {% csrf_token %}
+    
+    <!-- Show error messages -->
     {% if messages %}
         {% for message in messages %}
-            <p style="color: {% if message.tags == 'error' %}red{% else %}green{% endif %};">{{ message }}</p>
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
         {% endfor %}
     {% endif %}
-    <form method="post">
-        {% csrf_token %}
-        <input type="email" name="email" placeholder="Email" required><br>
-        <input type="password" name="password" placeholder="Password (min 12 chars, upper/lower/num/symbol)" required><br>
-        <input type="password" name="confirm_password" placeholder="Confirm Password" required><br>
-        <button type="submit">Sign Up</button>
-    </form>
-    <a href="{% url 'home' %}">Back</a>
-</body>
-</html>
+    
+    <input type="text" name="name" placeholder="Full Name">
+    <input type="email" name="email" placeholder="Email" required>
+    <input type="password" name="password" placeholder="Password" required>
+    <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+    
+    <button type="submit">Sign Up</button>
+</form>

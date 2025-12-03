@@ -6,16 +6,22 @@ from django.contrib.auth.decorators import login_required
 from accounts import views as accounts_views
 from files import views as file_views
 from files import sharingviews
+from django.conf.urls.static import static
+from django.conf import settings
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('accounts/', include('allauth.urls')),
+    # path('accounts/', include('allauth.urls')),
     path('accounts/', include('accounts.urls')),
     path('api/', include('files.urls')),
 
     path('files/', include('files.urls')),
+
     path('s/<slug:slug>/', sharingviews.shared_file_view, name='shared_file'),
     path('s/<slug:slug>/download/', sharingviews.shared_file_view, {'action': 'download'}, name='shared_file_download'),
     path('', accounts_views.home, name='home'),
     path('dashboard/', login_required(file_views.dashboard), name='dashboard'),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -4,11 +4,19 @@ import os
 import dj_database_url
 from django.core.management.utils import get_random_secret_key
 import logging
+import dj_database_url
 
 logging.basicConfig(level=logging.INFO)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env early
+from dotenv import load_dotenv
+load_dotenv()
+
+# Now safe to use os.getenv()
+print("✅ .env loaded. DATABASE_URL present:", 'DATABASE_URL' in os.environ)
 
 # ═══════════════════════════════════════════════════════════
 # 🔧 ENVIRONMENT DETECTION
@@ -165,19 +173,22 @@ INSTALLED_APPS = [
 # ═══════════════════════════════════════════════════════════
 SITE_ID = 1
 
+# Authentication backends
 AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
+    'django.contrib.auth.backends.ModelBackend',  # Default Django auth
+    'allauth.account.auth_backends.AuthenticationBackend',  # Allauth (for social)
 ]
 
-# Dynamic SITE_URL
-SITE_URL = config('SITE_URL', default='http://localhost:8000')
-if IS_RAILWAY:
-    railway_url = os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
-    if railway_url:
-        SITE_URL = railway_url if railway_url.startswith('http') else f'https://{railway_url}'
-
-print(f"SITE_URL: {SITE_URL}")
+# Django-allauth settings
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_VERIFICATION = 'optional'  # Don't block login
+ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+ACCOUNT_LOGOUT_ON_GET = False
+ACCOUNT_LOGIN_ATTEMPTS_LIMIT = 5
+ACCOUNT_LOGIN_ATTEMPTS_TIMEOUT = 300
 
 # Social Auth (Google)
 SOCIALACCOUNT_PROVIDERS = {
@@ -191,12 +202,20 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomSocialAccountAdapter'
-SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
-SKIP_EMAIL_VERIFICATION = True
-
+# Redirect URLs (NO DUPLICATES!)
+LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/'
+
+# Dynamic SITE_URL
+SITE_URL = config('SITE_URL', default='http://localhost:8000')
+if IS_RAILWAY:
+    railway_url = os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
+    if railway_url:
+        SITE_URL = railway_url if railway_url.startswith('http') else f'https://{railway_url}'
+
+print(f"SITE_URL: {SITE_URL}")
+
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 PASSWORD HASHING
@@ -449,3 +468,24 @@ if IS_RAILWAY:
                 print(f"⚠ Site setup skipped: {e}")
     except Exception as e:
         print(f"⚠ Could not auto-setup site: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# 📧 DJANGO-ALLAUTH SETTINGS
+# ═══════════════════════════════════════════════════════════
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_VERIFICATION = 'optional'  # Change to 'mandatory' if you want strict verification
+ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+ACCOUNT_LOGOUT_ON_GET = False
+ACCOUNT_LOGIN_ATTEMPTS_LIMIT = 5
+ACCOUNT_LOGIN_ATTEMPTS_TIMEOUT = 300
+
+# Redirect URLs
+LOGIN_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/dashboard/'
+LOGOUT_REDIRECT_URL = '/'
+ACCOUNT_LOGOUT_REDIRECT_URL = '/'
+ACCOUNT_SIGNUP_REDIRECT_URL = '/dashboard/'

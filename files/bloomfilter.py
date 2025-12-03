@@ -1,5 +1,14 @@
 import mmh3
 from bitarray import bitarray
+import math
+
+try:
+    from bitarray import bitarray
+    BITARRAY_AVAILABLE = True
+except ImportError:
+    BITARRAY_AVAILABLE = False
+    print("Warning: bitarray not available, using fallback implementation")
+
 
 class BloomFilter:
     def __init__(self, m=1_000_000, k=5):
