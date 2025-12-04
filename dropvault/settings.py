@@ -8,21 +8,28 @@ import dj_database_url
 
 logging.basicConfig(level=logging.INFO)
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from .env file if it exists (dev only)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    # python-dotenv not installed or .env not needed (production)
-    pass
+
+# ═══════════════════════════════════════════════════════════
+# 🔧 LOAD .ENV FILE (DEVELOPMENT ONLY)
+# ═══════════════════════════════════════════════════════════
+IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+
+if not IS_RAILWAY:
+    try:
+        from dotenv import load_dotenv
+        env_path = BASE_DIR / '.env'
+        if env_path.exists():
+            load_dotenv(env_path)
+            print("✅ .env loaded")
+    except ImportError:
+        print("⚠️  python-dotenv not installed")
 
 
+print("✅ Environment setup complete")
+print(f"DATABASE_URL present: {'DATABASE_URL' in os.environ}")
 
-# Now safe to use os.getenv()
-print("✅ .env loaded. DATABASE_URL present:", 'DATABASE_URL' in os.environ)
 
 # ═══════════════════════════════════════════════════════════
 # 🔧 ENVIRONMENT DETECTION
