@@ -168,6 +168,7 @@ def signup_view(request):
 # ═══════════════════════════════════════════════════════════
 # 🔐 WEB LOGIN VIEW (HTML Form)
 # ═══════════════════════════════════════════════════════════
+
 def login_view(request):
     """Web-based login - renders HTML form and handles authentication"""
     
@@ -218,7 +219,14 @@ def login_view(request):
         if profile:
             print(f"📧 Email verified: {profile.email_verified}")
             if not profile.email_verified:
-                messages.warning(request, "Please verify your email to access all features.")
+                # Send verification email on login if not verified
+                try:
+                    send_verification_email(auth_user)
+                    messages.warning(request, "Please verify your email. A new verification link has been sent.")
+                except Exception as e:
+                    print(f"⚠️ Failed to send verification email: {e}")
+                    messages.warning(request, "Please verify your email to access all features.")
+                
                 return redirect('verify_email_prompt')
         
         messages.success(request, f"Welcome back, {auth_user.first_name or auth_user.email}!")
@@ -230,6 +238,7 @@ def login_view(request):
         return render(request, 'login.html', {'email': email})
     
     return render(request, 'login.html')
+
 # ═══════════════════════════════════════════════════════════
 # 🚪 LOGOUT VIEW
 # ═══════════════════════════════════════════════════════════

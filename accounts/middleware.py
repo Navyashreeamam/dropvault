@@ -1,8 +1,10 @@
 # accounts/middleware.py
+import logging
 from django.urls import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
 
+logger = logging.getLogger(__name__)
 
 class EmailVerificationMiddleware:
     def __init__(self, get_response):
@@ -61,3 +63,23 @@ class EmailVerificationMiddleware:
         # If not exempt and not verified, redirect to verification prompt
         messages.warning(request, "Please verify your email to access this page.")
         return redirect('verify_email_prompt')
+
+class SessionCleanupMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        
+    def __call__(self, request):
+        # Check for corrupted session
+        try:
+            if hasattr(request, 'session'):
+                # Try to access session
+                _ = request.session.session_key
+        except Exception as e:
+            if 'Session data corrupted' not in str(e):
+                logger.warning(f"Session error: {e}")
+            # Clear the bad session
+            request.session.flush()
+            request.session.cycle_key()
+        
+        response = self.get_response(request)
+        return response
