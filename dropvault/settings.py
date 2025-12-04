@@ -8,16 +8,17 @@ import dj_database_url
 
 logging.basicConfig(level=logging.INFO)
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load .env early
+# Load environment variables from .env file if it exists (dev only)
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
+    # python-dotenv not installed or .env not needed (production)
     pass
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # Now safe to use os.getenv()
@@ -54,26 +55,17 @@ SECRET_KEY = config(
     default='django-insecure-temp-key-for-build-replace-in-production-settings'
 )
 
-DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
 
 # ALLOWED_HOSTS
-ALLOWED_HOSTS_STR = config('ALLOWED_HOSTS', default='localhost,127.0.0.1')
+ALLOWED_HOSTS_STR = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STR.split(',') if host.strip()]
 
-# Auto-add Railway domain
-if IS_RAILWAY:
-    railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN')
-    railway_static_url = os.environ.get('RAILWAY_STATIC_URL', '').replace('https://', '').replace('http://', '')
-    
-    # Also check for common Railway domain pattern
-    if not railway_domain and not railway_static_url:
-        # Allow all .railway.app domains temporarily for debugging
-        ALLOWED_HOSTS.append('.railway.app')
-    
-    if railway_domain and railway_domain not in ALLOWED_HOSTS:
+# Add Railway's domain if present
+if 'RAILWAY_STATIC_URL' in os.environ:
+    railway_domain = os.environ['RAILWAY_STATIC_URL'].replace('https://', '').replace('http://', '')
+    if railway_domain not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(railway_domain)
-    if railway_static_url and railway_static_url not in ALLOWED_HOSTS:
-        ALLOWED_HOSTS.append(railway_static_url)
 
 # Ensure we have allowed hosts
 if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
