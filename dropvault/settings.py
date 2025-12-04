@@ -8,12 +8,17 @@ import dj_database_url
 
 logging.basicConfig(level=logging.INFO)
 
+
+# Load .env early
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load .env early
-from dotenv import load_dotenv
-load_dotenv()
 
 # Now safe to use os.getenv()
 print("✅ .env loaded. DATABASE_URL present:", 'DATABASE_URL' in os.environ)

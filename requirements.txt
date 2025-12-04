@@ -34,6 +34,7 @@ pycparser==2.23
 PyJWT==2.10.1
 pyparsing==3.2.5
 python-decouple==3.8
+python-dotenv==1.2.1
 qrcode==8.2
 redis==7.1.0
 requests==2.32.5
