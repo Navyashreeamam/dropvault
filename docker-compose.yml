@@ -9,7 +9,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5432:5432"  # This allows local connections too
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -27,8 +27,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Override specific values from .env
+      - DOCKER_CONTAINER=true  # This flag tells the app it's in Docker
       - DATABASE_URL=postgresql://postgres:postgres123@db:5432/dropvault
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
     depends_on:
       db:
         condition: service_healthy

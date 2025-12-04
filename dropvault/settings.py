@@ -47,8 +47,36 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@dropvault.app')
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ DATABASE CONFIGURATION
+# 🗄️ DATABASE CONFIGURATION (Works for both Docker & Local)
 # ═══════════════════════════════════════════════════════════
+# Auto-detect if running in Docker or locally
+import socket
+
+def is_running_in_docker():
+    """Check if we're running inside a Docker container"""
+    # Method 1: Check for .dockerenv file
+    if os.path.exists('/.dockerenv'):
+        return True
+    
+    # Method 2: Check hostname (Docker containers have unique hostnames)
+    try:
+        hostname = socket.gethostname()
+        if len(hostname) == 12 and all(c in '0123456789abcdef' for c in hostname):
+            return True
+    except:
+        pass
+    
+    # Method 3: Check for Docker-specific environment variable
+    if os.environ.get('DOCKER_CONTAINER'):
+        return True
+    
+    return False
+
+# Determine if we're in Docker
+IN_DOCKER = is_running_in_docker()
+print(f"🐳 Running in Docker: {IN_DOCKER}")
+
+# Use DATABASE_URL if provided (Railway, Heroku, etc.)
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
@@ -61,18 +89,25 @@ if DATABASE_URL:
     }
     print("✅ Using DATABASE_URL from environment")
 else:
+    # Determine the correct host based on environment
+    if IN_DOCKER:
+        DB_HOST = 'db'  # Docker service name
+        print("🐳 Using Docker database host: db")
+    else:
+        DB_HOST = 'localhost'  # Local PostgreSQL
+        print("💻 Using local database host: localhost")
+    
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.environ.get('DB_NAME', 'dropvault'),
             'USER': os.environ.get('DB_USER', 'postgres'),
             'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres123'),
-            'HOST': os.environ.get('DB_HOST', 'db'),
+            'HOST': DB_HOST,
             'PORT': os.environ.get('DB_PORT', '5432'),
         }
     }
-    print("✅ Using local database configuration")
-
+    
 # ═══════════════════════════════════════════════════════════
 # 📦 INSTALLED APPS
 # ═══════════════════════════════════════════════════════════
