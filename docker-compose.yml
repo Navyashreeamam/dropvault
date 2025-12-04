@@ -1,0 +1,46 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: dropvault-db
+    environment:
+      POSTGRES_DB: dropvault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dropvault_password_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: dropvault-web
+    command: /bin/bash /app/start.sh
+    volumes:
+      - .:/app
+      - media_files:/app/media
+      - static_files:/app/staticfiles
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=your-secret-key-here-change-in-production
+      - DATABASE_URL=postgresql://postgres:dropvault_password_2024@db:5432/dropvault
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      - EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  media_files:
+  static_files:

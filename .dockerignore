@@ -1,0 +1,27 @@
+# .dockerignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+*.db
+*.sqlite3
+.git
+.gitignore
+.env
+.venv
+venv/
+env/
+.DS_Store
+*.log
+node_modules/
+.vscode/
+.idea/
+*.md
+Dockerfile.backup
+docker-compose.override.yml

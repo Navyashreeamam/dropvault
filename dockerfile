@@ -10,8 +10,10 @@ ENV DJANGO_SETTINGS_MODULE=dropvault.settings
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    postgresql-client \
+    build-essential \
     libpq-dev \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
@@ -24,7 +26,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy project files
 COPY . .
 
-# Collect static files
+# Create media directory for uploaded files
+RUN mkdir -p /app/media /app/staticfiles
+
+# Collect static files (ignore errors if settings incomplete)
 RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
 
 # Expose port
@@ -32,11 +37,21 @@ EXPOSE 8000
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
-echo "Running migrations..."\n\
+echo "🚀 Starting DropVault..."\n\
+echo "📦 Running migrations..."\n\
 python manage.py migrate --noinput\n\
-echo "Starting Gunicorn server..."\n\
-exec gunicorn dropvault.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120\n\
+echo "🧹 Collecting static files..."\n\
+python manage.py collectstatic --noinput --clear\n\
+echo "✅ Starting Gunicorn server on port ${PORT:-8000}..."\n\
+exec gunicorn dropvault.wsgi:application \\\n\
+    --bind 0.0.0.0:${PORT:-8000} \\\n\
+    --workers 2 \\\n\
+    --threads 4 \\\n\
+    --timeout 120 \\\n\
+    --access-logfile - \\\n\
+    --error-logfile - \\\n\
+    --log-level info\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Run the startup script
-CMD ["/bin/bash", "start.sh"]
+CMD ["/bin/bash", "/app/start.sh"]
