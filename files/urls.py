@@ -1,9 +1,9 @@
-# files/urls.py — API ONLY (flat)
 from django.urls import path
 from . import views, sharingviews
 
+# These will be prefixed with /api/ from main urls
 urlpatterns = [
-    # ✅ Flat API paths — NO 'api/' prefix
+    # File Management
     path('upload/', views.upload_file, name='upload_file'),
     path('list/', views.list_files, name='list_files'),
     path('delete/<int:file_id>/', views.delete_file, name='delete_file'),

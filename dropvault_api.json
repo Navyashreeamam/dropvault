@@ -1,0 +1,44 @@
+{
+  "info": {
+    "name": "DropVault API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "base_url", "value": "http://127.0.0.1:8000"},
+    {"key": "token", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "1. Signup",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/accounts/api/signup/",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"testuser\",\"email\":\"test@example.com\",\"password\":\"Test@12345\",\"confirm_password\":\"Test@12345\"}"
+        }
+      }
+    },
+    {
+      "name": "2. Login",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/accounts/api/login/",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"testuser\",\"password\":\"Test@12345\"}"
+        }
+      }
+    },
+    {
+      "name": "3. List Files",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/list/",
+        "header": [{"key": "Authorization", "value": "Token {{token}}"}]
+      }
+    }
+  ]
+}

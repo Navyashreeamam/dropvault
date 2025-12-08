@@ -122,7 +122,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 // Load files (AJAX)
 async function loadFiles() {
   try {
-    const res = await fetch('/files/list/', {
+    const res = await fetch('/api/list/', {
       headers: { 'X-CSRFToken': csrfToken }
     });
 
