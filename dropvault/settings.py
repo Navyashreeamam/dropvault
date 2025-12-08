@@ -9,7 +9,24 @@ logging.basicConfig(level=logging.INFO)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ═══════════════════════════════════════════════════════════
-# 🔧 ENVIRONMENT DETECTION (NO DOTENV NEEDED)
+# 🔧 LOAD .ENV FILE (CRITICAL - MUST BE FIRST!)
+# ═══════════════════════════════════════════════════════════
+from dotenv import load_dotenv
+
+# Load .env file
+env_path = BASE_DIR / '.env'
+load_dotenv(dotenv_path=env_path)
+
+# Debug: Verify .env is loaded
+if env_path.exists():
+    print(f"✅ .env file found at: {env_path}")
+    print(f"   EMAIL_HOST_USER from .env: {os.getenv('EMAIL_HOST_USER', 'NOT FOUND')}")
+    print(f"   EMAIL_HOST_PASSWORD: {'SET' if os.getenv('EMAIL_HOST_PASSWORD') else 'NOT SET'}")
+else:
+    print(f"⚠️  .env file NOT found at: {env_path}")
+
+# ═══════════════════════════════════════════════════════════
+# 🔧 ENVIRONMENT DETECTION
 # ═══════════════════════════════════════════════════════════
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 
@@ -38,13 +55,21 @@ if IS_RAILWAY:
 # ═══════════════════════════════════════════════════════════
 # 📧 EMAIL CONFIGURATION
 # ═══════════════════════════════════════════════════════════
-EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@dropvault.app')
+# Force SMTP backend for real email sending
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip('\'"')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip('\'"')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <noreply@dropvault.app>').strip('\'"')
+
+if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
+    print("⚠️ EMAIL CREDENTIALS MISSING - Falling back to console backend")
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 
 # ═══════════════════════════════════════════════════════════
 # 🗄️ DATABASE CONFIGURATION (Works for both Docker & Local)
@@ -146,7 +171,7 @@ AUTHENTICATION_BACKENDS = [
 # Updated settings for django-allauth 65+
 ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
-ACCOUNT_EMAIL_VERIFICATION = 'optional'
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 ACCOUNT_LOGOUT_ON_GET = False
 
