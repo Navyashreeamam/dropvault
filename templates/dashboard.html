@@ -22,14 +22,46 @@
     
     /* Trash specific styles */
     .trash-container { display: none; margin-top: 20px; }
-    .file-item { padding: 12px; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px; }
-    .file-info { margin-bottom: 8px; }
-    .file-name { font-weight: bold; }
-    .delete-info { color: #888; font-size: 0.9em; }
-    .days-remaining { display: block; font-weight: bold; }
-    .days-remaining.warning { color: #d32f2f; }
-    .restore-btn { margin-top: 8px; }
+    .file-item { 
+      padding: 12px; 
+      border: 1px solid #eee; 
+      border-radius: 4px; 
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .file-info { flex: 1; }
+    .file-name { font-weight: bold; display: block; margin-bottom: 4px; }
+    .file-size { color: #666; font-size: 0.9em; margin-right: 10px; }
+    .delete-info { color: #888; font-size: 0.85em; display: block; }
+    .days-remaining { 
+      display: inline-block; 
+      font-weight: bold; 
+      font-size: 0.85em;
+      margin-top: 4px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .days-remaining.warning { 
+      background: #ffebee;
+      color: #d32f2f; 
+    }
+    .restore-btn { 
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .restore-btn:hover {
+      background: #388e3c;
+    }
     .no-files { color: #888; font-style: italic; padding: 20px; text-align: center; }
+    .loading { text-align: center; padding: 20px; color: #666; }
   </style>
 </head>
 <body>
@@ -45,7 +77,7 @@
 <!-- Tabs Navigation -->
 <div class="tabs">
   <button id="files-tab" class="tab active">📁 Your Files</button>
-  <button id="trash-tab" class="tab">🗑️ Trash</button>
+  <button id="trash-tab" class="tab">🗑️ Trash (<span id="trash-count">0</span>)</button>
 </div>
 
 <!-- Files Container -->
@@ -54,14 +86,15 @@
   <ul id="fileList">
     <li>Loading files...</li>
   </ul>
-  <button onclick="loadFiles()">Refresh Files</button>
+  <button onclick="loadFiles()">🔄 Refresh Files</button>
 </div>
 
 <!-- Trash Container (initially hidden) -->
 <div id="trash-container" class="trash-container">
-  <h2>Trash</h2>
+  <h2>🗑️ Trash</h2>
+  <p style="color: #666; font-size: 0.9em;">Files in trash will be permanently deleted after 30 days.</p>
   <div id="trash-list">
-    <p>Loading trash...</p>
+    <p class="loading">Loading trash...</p>
   </div>
 </div>
 
@@ -235,17 +268,18 @@ async function copyLink(fileId) {
 
 // Delete file
 async function deleteFile(id) {
-  if (!confirm('Delete this file?')) return;
+  if (!confirm('Move this file to trash?')) return;
   try {
     const res = await fetch(`/files/delete/${id}/`, {
       method: 'POST',
       headers: { 'X-CSRFToken': csrfToken }
     });
+    const data = await res.json();
     if (res.ok) {
-      alert('✅ Deleted');
+      alert('✅ File moved to trash');
       loadFiles();
+      updateTrashCount(); // Update trash count
     } else {
-      const data = await res.json();
       alert('❌ Delete failed: ' + (data.error || 'Permission denied'));
     }
   } catch (err) {
@@ -253,102 +287,179 @@ async function deleteFile(id) {
   }
 }
 
-// Add this function to load trash files
+// ═══════════════════════════════════════════════════════════
+// 🗑️ FIXED: Load trash files - API returns ARRAY directly
+// ═══════════════════════════════════════════════════════════
 async function loadTrashFiles() {
-    try {
-        const response = await fetch('/files/trash/', {
-            headers: { 'X-CSRFToken': csrfToken }
-        });
-        const data = await response.json();
-        const trashList = document.getElementById('trash-list');
-        
-        if (!trashList) {
-            console.error('Trash list element not found');
-            return;
-        }
-        
-        if (data.files && data.files.length > 0) {
-            trashList.innerHTML = data.files.map(file => `
-                <div class="file-item trash-item">
-                    <div class="file-info">
-                        <span class="file-name">${file.original_name}</span>
-                        <span class="file-size">${formatFileSize(file.size)}</span>
-                        <span class="delete-info">
-                            Deleted: ${new Date(file.deleted_at).toLocaleDateString()}
-                        </span>
-                        <span class="days-remaining ${file.days_remaining < 7 ? 'warning' : ''}">
-                            ${file.days_remaining} days until permanent deletion
-                        </span>
-                    </div>
-                    <button class="btn restore-btn" onclick="restoreFile(${file.id})">
-                        Restore
-                    </button>
-                </div>
-            `).join('');
-        } else {
-            trashList.innerHTML = '<p class="no-files">Trash is empty</p>';
-        }
-    } catch (error) {
-        console.error('Error loading trash:', error);
-        document.getElementById('trash-list').innerHTML = '<p class="no-files">Error loading trash</p>';
+  console.log('🗑️ Loading trash files...');
+  const trashList = document.getElementById('trash-list');
+  
+  if (!trashList) {
+    console.error('❌ Trash list element not found');
+    return;
+  }
+  
+  trashList.innerHTML = '<p class="loading">⏳ Loading trash...</p>';
+  
+  try {
+    const response = await fetch('/api/trash/', {
+      method: 'GET',
+      headers: { 
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/json'
+      },
+      credentials: 'same-origin'
+    });
+    
+    console.log('🗑️ Response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
+    
+    const data = await response.json();
+    console.log('🗑️ Trash data:', data);
+    
+    // ✅ FIX: API returns array directly, NOT {files: [...]}
+    // Check if data is an array
+    const files = Array.isArray(data) ? data : (data.files || []);
+    
+    console.log('🗑️ Files to display:', files.length);
+    
+    // Update trash count in tab
+    document.getElementById('trash-count').textContent = files.length;
+    
+    if (files.length === 0) {
+      trashList.innerHTML = '<p class="no-files">🗑️ Trash is empty</p>';
+      return;
+    }
+    
+    // Render trash items
+    trashList.innerHTML = files.map(file => {
+      const deletedDate = new Date(file.deleted_at).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      const daysClass = file.days_remaining <= 7 ? 'warning' : '';
+      
+      return `
+        <div class="file-item">
+          <div class="file-info">
+            <span class="file-name">📄 ${escapeHtml(file.filename)}</span>
+            <span class="file-size">${formatFileSize(file.size)}</span>
+            <span class="delete-info">Deleted: ${deletedDate}</span>
+            <span class="days-remaining ${daysClass}">
+              ⏰ ${file.days_remaining} days until permanent deletion
+            </span>
+          </div>
+          <button class="restore-btn" onclick="restoreFile(${file.id}, '${escapeHtml(file.filename)}')">
+            ♻️ Restore
+          </button>
+        </div>
+      `;
+    }).join('');
+    
+    console.log('✅ Trash rendered successfully');
+    
+  } catch (error) {
+    console.error('❌ Error loading trash:', error);
+    trashList.innerHTML = `<p class="no-files">❌ Error loading trash: ${error.message}</p>`;
+  }
 }
 
-// Add restore function
-async function restoreFile(fileId) {
-    if (!confirm('Restore this file?')) return;
+// ═══════════════════════════════════════════════════════════
+// ♻️ FIXED: Restore file - check for correct response format
+// ═══════════════════════════════════════════════════════════
+async function restoreFile(fileId, fileName) {
+  if (!confirm(`Restore "${fileName}" from trash?`)) return;
+  
+  console.log('♻️ Restoring file:', fileId);
+  
+  try {
+    const response = await fetch(`/api/restore/${fileId}/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/json'
+      },
+      credentials: 'same-origin'
+    });
     
-    try {
-        const response = await fetch(`/files/restore/${fileId}/`, {
-            method: 'POST',
-            headers: {
-                'X-CSRFToken': csrfToken
-            }
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            alert('File restored successfully!');
-            loadTrashFiles();  // Reload trash
-            loadFiles();       // Reload main files
-        } else {
-            alert(data.error || 'Failed to restore file');
-        }
-    } catch (error) {
-        console.error('Error restoring file:', error);
-        alert('Failed to restore file');
+    console.log('♻️ Restore response status:', response.status);
+    
+    const data = await response.json();
+    console.log('♻️ Restore response:', data);
+    
+    // ✅ FIX: Check for 'status' === 'success' (what API returns)
+    if (response.ok && (data.status === 'success' || data.success)) {
+      alert('✅ File restored successfully!');
+      loadTrashFiles();  // Reload trash
+      loadFiles();       // Reload main files
+    } else {
+      alert('❌ ' + (data.error || data.message || 'Failed to restore file'));
     }
+  } catch (error) {
+    console.error('❌ Restore error:', error);
+    alert('❌ Failed to restore file: ' + error.message);
+  }
+}
+
+// Update trash count without showing the full list
+async function updateTrashCount() {
+  try {
+    const response = await fetch('/api/trash/', {
+      headers: { 'X-CSRFToken': csrfToken }
+    });
+    const data = await response.json();
+    const files = Array.isArray(data) ? data : (data.files || []);
+    document.getElementById('trash-count').textContent = files.length;
+  } catch (error) {
+    console.error('Error updating trash count:', error);
+  }
 }
 
 // Helper function for file size formatting
 function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // Tab switching functionality
 document.getElementById('files-tab').addEventListener('click', () => {
-    document.getElementById('files-container').style.display = 'block';
-    document.getElementById('trash-container').style.display = 'none';
-    document.getElementById('files-tab').classList.add('active');
-    document.getElementById('trash-tab').classList.remove('active');
-    loadFiles();
+  document.getElementById('files-container').style.display = 'block';
+  document.getElementById('trash-container').style.display = 'none';
+  document.getElementById('files-tab').classList.add('active');
+  document.getElementById('trash-tab').classList.remove('active');
+  loadFiles();
 });
 
 document.getElementById('trash-tab').addEventListener('click', () => {
-    document.getElementById('files-container').style.display = 'none';
-    document.getElementById('trash-container').style.display = 'block';
-    document.getElementById('files-tab').classList.remove('active');
-    document.getElementById('trash-tab').classList.add('active');
-    loadTrashFiles();
+  document.getElementById('files-container').style.display = 'none';
+  document.getElementById('trash-container').style.display = 'block';
+  document.getElementById('files-tab').classList.remove('active');
+  document.getElementById('trash-tab').classList.add('active');
+  loadTrashFiles();
 });
 
 // Initial load
 document.addEventListener('DOMContentLoaded', function() {
-    loadFiles();
+  console.log('🚀 Dashboard loaded');
+  loadFiles();
+  updateTrashCount(); // Get initial trash count
 });
 </script>
 </body>

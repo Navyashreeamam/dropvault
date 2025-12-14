@@ -1,5 +1,6 @@
 # DropVault/files/views.py
 import logging
+import sys
 import os
 import hashlib
 import secrets
@@ -25,7 +26,24 @@ from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError
 
-logger = logging.getLogger(__name__)
+# ═══════════════════════════════════════════════════════════
+# 🔧 FORCE LOGGING TO CONSOLE (Fix for Docker/Gunicorn)
+# ═══════════════════════════════════════════════════════════
+def log_message(level, message):
+    """Force print to stdout for Docker visibility"""
+    timestamp = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] [{level}] {message}", flush=True)
+    sys.stdout.flush()
+
+def log_info(message):
+    log_message("INFO", message)
+
+def log_error(message):
+    log_message("ERROR", message)
+
+def log_debug(message):
+    if settings.DEBUG:
+        log_message("DEBUG", message)
 
 # Constants
 ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.docx', '.txt', '.mp4'}
@@ -46,6 +64,7 @@ def api_login_required(view_func):
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if not request.user.is_authenticated:
+            log_info(f"🔒 Unauthorized access attempt to {request.path}")
             return JsonResponse({
                 'error': 'Authentication required',
                 'message': 'Please login first using /api/login/',
@@ -101,53 +120,6 @@ def _encrypt_chunk(plaintext_chunk):
     return ciphertext, key, nonce, tag
 
 
-def is_file_deleted(file_obj):
-    """Check if file is deleted (handles both field types)"""
-    if hasattr(file_obj, 'deleted') and file_obj.deleted:
-        return True
-    if hasattr(file_obj, 'deleted_at') and file_obj.deleted_at:
-        return True
-    return False
-
-
-def mark_file_deleted(file_obj):
-    """Mark file as deleted (handles both field types)"""
-    if hasattr(file_obj, 'deleted'):
-        file_obj.deleted = True
-    if hasattr(file_obj, 'deleted_at'):
-        file_obj.deleted_at = timezone.now()
-    file_obj.save()
-
-
-def mark_file_restored(file_obj):
-    """Mark file as restored (handles both field types)"""
-    if hasattr(file_obj, 'deleted'):
-        file_obj.deleted = False
-    if hasattr(file_obj, 'deleted_at'):
-        file_obj.deleted_at = None
-    file_obj.save()
-
-
-def get_active_files_query(user):
-    """Get query for non-deleted files"""
-    query = File.objects.filter(user=user)
-    if hasattr(File, 'deleted'):
-        query = query.filter(deleted=False)
-    else:
-        query = query.filter(deleted_at__isnull=True)
-    return query
-
-
-def get_deleted_files_query(user):
-    """Get query for deleted files"""
-    query = File.objects.filter(user=user)
-    if hasattr(File, 'deleted'):
-        query = query.filter(deleted=True)
-    else:
-        query = query.filter(deleted_at__isnull=False)
-    return query
-
-
 # ═══════════════════════════════════════════════════════════
 # 📤 UPLOAD FILE API
 # ═══════════════════════════════════════════════════════════
@@ -159,12 +131,17 @@ def upload_file(request):
     API: Upload a file
     POST /api/upload/
     """
+    log_info(f"📤 UPLOAD REQUEST from user {request.user.id} ({request.user.email})")
+    
     file = request.FILES.get('file')
     valid, msg = validate_file(file)
     if not valid:
+        log_error(f"❌ Upload validation failed: {msg}")
         return JsonResponse({'error': msg}, status=400)
 
     try:
+        log_info(f"📤 Processing file: {file.name} ({file.size} bytes)")
+        
         chunks, chunk_hashes = create_file_chunks_with_hash(file, CHUNK_SIZE)
 
         # Compute file-level SHA-256
@@ -172,11 +149,18 @@ def upload_file(request):
         for h in chunk_hashes:
             file_hasher.update(h.encode('utf-8'))
         file_sha256 = file_hasher.hexdigest()
+        
+        log_debug(f"🔐 File SHA256: {file_sha256}")
 
-        # Deduplication check
+        # Deduplication check - only check active files
         if _bloom.contains(file_sha256):
-            existing = get_active_files_query(request.user).filter(sha256=file_sha256)
+            existing = File.objects.filter(
+                user=request.user, 
+                sha256=file_sha256,
+                deleted=False
+            )
             if existing.exists():
+                log_info(f"⚠️ Duplicate file detected: {file.name}")
                 return JsonResponse({
                     'error': 'Duplicate file',
                     'message': 'You already uploaded this file.'
@@ -187,7 +171,7 @@ def upload_file(request):
         # Encrypt all chunks
         encrypted_data = bytearray()
         chunk_keys_nonces_tags = []
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
             ciphertext, key, nonce, tag = _encrypt_chunk(chunk)
             encrypted_data.extend(ciphertext)
             chunk_keys_nonces_tags.append({
@@ -195,6 +179,8 @@ def upload_file(request):
                 'nonce': base64.b64encode(nonce).decode(),
                 'tag': base64.b64encode(tag).decode()
             })
+        
+        log_debug(f"🔐 Encrypted {len(chunks)} chunks")
 
         # Save encrypted file
         encrypted_file = ContentFile(encrypted_data)
@@ -202,21 +188,21 @@ def upload_file(request):
         safe_name = f"{secrets.token_urlsafe(12)}.{original_name.split('.')[-1].lower()}"
         encrypted_file.name = safe_name
 
-        # Create file object
-        file_data = {
-            'user': request.user,
-            'file': encrypted_file,
-            'original_name': original_name,
-            'size': len(encrypted_data),
-            'sha256': file_sha256,
-            'encryption_meta': json.dumps(chunk_keys_nonces_tags)
-        }
+        # Create file object - explicitly set deleted=False
+        file_obj = File.objects.create(
+            user=request.user,
+            file=encrypted_file,
+            original_name=original_name,
+            size=len(encrypted_data),
+            sha256=file_sha256,
+            encryption_meta=json.dumps(chunk_keys_nonces_tags),
+            deleted=False,
+            deleted_at=None
+        )
         
-        if hasattr(File, 'deleted'):
-            file_data['deleted'] = False
-            
-        file_obj = File.objects.create(**file_data)
         FileLog.objects.create(user=request.user, file=file_obj, action='UPLOAD')
+        
+        log_info(f"✅ FILE UPLOADED: ID={file_obj.id}, Name={file_obj.original_name}, User={request.user.email}")
 
         return JsonResponse({
             'status': 'success',
@@ -230,7 +216,9 @@ def upload_file(request):
         }, status=201)
 
     except Exception as e:
-        logger.error(f"Upload failed: {str(e)}")
+        log_error(f"❌ Upload failed: {str(e)}")
+        import traceback
+        log_error(traceback.format_exc())
         return JsonResponse({
             'error': 'Upload failed',
             'message': str(e)
@@ -245,13 +233,17 @@ def upload_file(request):
 @require_http_methods(["GET"])
 def list_files(request):
     """
-    API: List user's files
+    API: List user's active (non-deleted) files
     GET /api/list/
-    
-    Returns: JSON ARRAY (not object) for frontend compatibility
     """
+    log_info(f"📂 LIST FILES request from user {request.user.id} ({request.user.email})")
+    
     try:
-        files = get_active_files_query(request.user).order_by('-uploaded_at')
+        # Get only non-deleted files
+        files = File.objects.filter(
+            user=request.user,
+            deleted=False
+        ).order_by('-uploaded_at')
         
         file_list = [
             {
@@ -263,11 +255,12 @@ def list_files(request):
             for f in files
         ]
         
-        # ✅ Return ARRAY directly (frontend expects array.map())
+        log_info(f"📂 Returning {len(file_list)} active files for user {request.user.email}")
+        
         return JsonResponse(file_list, safe=False)
         
     except Exception as e:
-        logger.error(f"List files failed: {str(e)}")
+        log_error(f"❌ List files failed: {str(e)}")
         return JsonResponse([], safe=False)
 
 
@@ -279,33 +272,50 @@ def list_files(request):
 @require_http_methods(["DELETE", "POST"])
 def delete_file(request, file_id):
     """
-    API: Soft delete a file
+    API: Soft delete a file (move to trash)
     DELETE /api/delete/<file_id>/
+    POST /api/delete/<file_id>/
     """
+    log_info(f"🗑️ DELETE REQUEST for file {file_id} from user {request.user.id} ({request.user.email})")
+    
     try:
         file_obj = File.objects.get(id=file_id, user=request.user)
+        log_info(f"🗑️ Found file: ID={file_obj.id}, Name={file_obj.original_name}, deleted={file_obj.deleted}")
         
-        if is_file_deleted(file_obj):
+        if file_obj.deleted:
+            log_info(f"⚠️ File {file_id} is already in trash")
             return JsonResponse({
                 'error': 'Already deleted',
                 'message': 'File is already in trash'
             }, status=400)
             
     except File.DoesNotExist:
+        log_error(f"❌ File {file_id} not found for user {request.user.id}")
         return JsonResponse({
             'error': 'File not found',
             'message': 'File does not exist or you do not have permission'
         }, status=404)
 
     try:
-        mark_file_deleted(file_obj)
-
-        Trash.objects.update_or_create(
-            file=file_obj,
-            defaults={'deleted_at': timezone.now()}
-        )
+        # Mark file as deleted
+        now = timezone.now()
+        file_obj.deleted = True
+        file_obj.deleted_at = now
+        file_obj.save(update_fields=['deleted', 'deleted_at'])
         
+        log_info(f"🗑️ Updated file: deleted={file_obj.deleted}, deleted_at={file_obj.deleted_at}")
+
+        # Create or update trash entry
+        trash_entry, created = Trash.objects.update_or_create(
+            file=file_obj,
+            defaults={'deleted_at': now}
+        )
+        log_info(f"🗑️ Trash entry {'created' if created else 'updated'} for file {file_id}")
+        
+        # Log the action
         FileLog.objects.create(user=request.user, file=file_obj, action='DELETE')
+        
+        log_info(f"✅ FILE DELETED: ID={file_id}, Name={file_obj.original_name} moved to trash")
 
         return JsonResponse({
             'status': 'success',
@@ -314,7 +324,9 @@ def delete_file(request, file_id):
         })
 
     except Exception as e:
-        logger.error(f"Delete failed: {str(e)}")
+        log_error(f"❌ Delete failed for file {file_id}: {str(e)}")
+        import traceback
+        log_error(traceback.format_exc())
         return JsonResponse({
             'error': 'Delete failed',
             'message': str(e)
@@ -329,47 +341,56 @@ def delete_file(request, file_id):
 @require_http_methods(["GET"])
 def trash_list(request):
     """
-    API: List deleted files
+    API: List deleted files in trash
     GET /api/trash/
-    
-    Returns: JSON ARRAY (not object) for frontend compatibility
     """
+    log_info(f"🗑️ TRASH LIST request from user {request.user.id} ({request.user.email})")
+    
     try:
-        trashed_files = get_deleted_files_query(request.user).order_by('-uploaded_at')
+        # Get all deleted files for this user
+        trashed_files = File.objects.filter(
+            user=request.user,
+            deleted=True
+        ).order_by('-deleted_at')
+        
+        log_info(f"🗑️ Found {trashed_files.count()} trashed files in database")
 
         data = []
         for f in trashed_files:
-            deletion_date = None
-            if hasattr(f, 'deleted_at') and f.deleted_at:
-                deletion_date = f.deleted_at
-            else:
+            # Get deletion date
+            deletion_date = f.deleted_at
+            
+            if deletion_date is None:
+                # Try to get from Trash model as fallback
                 try:
                     trash_entry = Trash.objects.get(file=f)
                     deletion_date = trash_entry.deleted_at
                 except Trash.DoesNotExist:
                     deletion_date = timezone.now()
             
-            days_remaining = 30
-            permanent_delete_date = None
-            
-            if deletion_date:
-                permanent_delete_date = deletion_date + timedelta(days=30)
-                days_remaining = max(0, (permanent_delete_date - timezone.now()).days)
+            # Calculate days remaining (30-day retention)
+            permanent_delete_date = deletion_date + timedelta(days=30)
+            days_remaining = max(0, (permanent_delete_date - timezone.now()).days)
 
-            data.append({
+            file_data = {
                 'id': f.id,
                 'filename': f.original_name,
                 'size': f.size,
                 'deleted_at': deletion_date.isoformat() if deletion_date else None,
                 'days_remaining': days_remaining,
-                'permanent_delete_date': permanent_delete_date.isoformat() if permanent_delete_date else None
-            })
+                'permanent_delete_date': permanent_delete_date.isoformat()
+            }
+            data.append(file_data)
+            log_debug(f"🗑️ Trash item: {file_data}")
 
-        # ✅ Return ARRAY directly (frontend expects array.map())
+        log_info(f"🗑️ Returning {len(data)} trashed files for user {request.user.email}")
+
         return JsonResponse(data, safe=False)
         
     except Exception as e:
-        logger.error(f"Trash list failed: {str(e)}")
+        log_error(f"❌ Trash list failed: {str(e)}")
+        import traceback
+        log_error(traceback.format_exc())
         return JsonResponse([], safe=False)
 
 
@@ -381,28 +402,45 @@ def trash_list(request):
 @require_http_methods(["POST"])
 def restore_file(request, file_id):
     """
-    API: Restore a deleted file
+    API: Restore a deleted file from trash
     POST /api/restore/<file_id>/
     """
+    log_info(f"♻️ RESTORE REQUEST for file {file_id} from user {request.user.id} ({request.user.email})")
+    
     try:
         file_obj = File.objects.get(id=file_id, user=request.user)
+        log_info(f"♻️ Found file: ID={file_obj.id}, Name={file_obj.original_name}, deleted={file_obj.deleted}")
         
-        if not is_file_deleted(file_obj):
+        if not file_obj.deleted:
+            log_info(f"⚠️ File {file_id} is not in trash")
             return JsonResponse({
                 'error': 'Not in trash',
                 'message': 'File is not in trash'
             }, status=400)
             
     except File.DoesNotExist:
+        log_error(f"❌ File {file_id} not found for user {request.user.id}")
         return JsonResponse({
             'error': 'File not found',
             'message': 'File does not exist or you do not have permission'
         }, status=404)
 
     try:
-        mark_file_restored(file_obj)
-        Trash.objects.filter(file=file_obj).delete()
+        # Restore the file
+        file_obj.deleted = False
+        file_obj.deleted_at = None
+        file_obj.save(update_fields=['deleted', 'deleted_at'])
+        
+        log_info(f"♻️ Updated file: deleted={file_obj.deleted}, deleted_at={file_obj.deleted_at}")
+        
+        # Remove trash entry
+        deleted_count, _ = Trash.objects.filter(file=file_obj).delete()
+        log_info(f"♻️ Deleted {deleted_count} trash entries for file {file_id}")
+        
+        # Log the action
         FileLog.objects.create(user=request.user, file=file_obj, action='RESTORE')
+        
+        log_info(f"✅ FILE RESTORED: ID={file_id}, Name={file_obj.original_name}")
 
         return JsonResponse({
             'status': 'success',
@@ -411,11 +449,58 @@ def restore_file(request, file_id):
         })
         
     except Exception as e:
-        logger.error(f"Restore failed: {str(e)}")
+        log_error(f"❌ Restore failed for file {file_id}: {str(e)}")
+        import traceback
+        log_error(traceback.format_exc())
         return JsonResponse({
             'error': 'Restore failed',
             'message': str(e)
         }, status=500)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔍 DEBUG ENDPOINT - Check database status
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@api_login_required
+@require_http_methods(["GET"])
+def debug_files(request):
+    """
+    DEBUG: Show all files with their deletion status
+    GET /api/debug/files/
+    """
+    log_info(f"🔍 DEBUG FILES request from user {request.user.id}")
+    
+    try:
+        all_files = File.objects.filter(user=request.user).order_by('-uploaded_at')
+        
+        data = []
+        for f in all_files:
+            data.append({
+                'id': f.id,
+                'filename': f.original_name,
+                'size': f.size,
+                'deleted': f.deleted,
+                'deleted_at': f.deleted_at.isoformat() if f.deleted_at else None,
+                'uploaded_at': f.uploaded_at.isoformat(),
+                'has_trash_entry': Trash.objects.filter(file=f).exists()
+            })
+        
+        active_count = len([f for f in data if not f['deleted']])
+        deleted_count = len([f for f in data if f['deleted']])
+        
+        log_info(f"🔍 Debug: {len(data)} total files, {active_count} active, {deleted_count} deleted")
+        
+        return JsonResponse({
+            'total': len(data),
+            'active': active_count,
+            'deleted': deleted_count,
+            'files': data
+        })
+        
+    except Exception as e:
+        log_error(f"❌ Debug failed: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -426,12 +511,19 @@ def dashboard(request):
     """
     Dashboard page - HTML view
     """
+    log_info(f"📊 DASHBOARD request from user {request.user.id} ({request.user.email})")
+    
     try:
-        files = get_active_files_query(request.user).order_by('-uploaded_at')
+        files = File.objects.filter(
+            user=request.user,
+            deleted=False
+        ).order_by('-uploaded_at')
         
         shared_links = SharedLink.objects.filter(
             owner=request.user
         ).select_related('file')
+        
+        log_info(f"📊 Dashboard: {files.count()} files, {shared_links.count()} shared links")
 
         return render(request, 'dashboard.html', {
             'files': files,
@@ -439,7 +531,7 @@ def dashboard(request):
         })
         
     except Exception as e:
-        logger.error(f"Dashboard error: {str(e)}")
+        log_error(f"❌ Dashboard error: {str(e)}")
         return render(request, 'dashboard.html', {
             'files': [],
             'shared_links': [],

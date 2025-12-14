@@ -1,7 +1,7 @@
+# files/urls.py
 from django.urls import path
 from . import views, sharingviews
 
-# These will be prefixed with /api/ from main urls
 urlpatterns = [
     # File Management
     path('upload/', views.upload_file, name='upload_file'),
@@ -9,6 +9,9 @@ urlpatterns = [
     path('delete/<int:file_id>/', views.delete_file, name='delete_file'),
     path('trash/', views.trash_list, name='trash_list'),
     path('restore/<int:file_id>/', views.restore_file, name='restore_file'),
+    
+    # Debug endpoint
+    path('debug/files/', views.debug_files, name='debug_files'),
     
     # Sharing
     path('share/<int:file_id>/', sharingviews.create_share_link, name='create_share_link'),
