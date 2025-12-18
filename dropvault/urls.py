@@ -36,9 +36,8 @@ urlpatterns = [
     path('api/delete/<int:file_id>/', file_views.delete_file, name='api_delete'),
     path('api/trash/', file_views.trash_list, name='api_trash'),
     path('api/restore/<int:file_id>/', file_views.restore_file, name='api_restore'),
-    path('api/download/<int:file_id>/', file_views.download_file, name='api_download'),
     
-    # File APIs (/files/ prefix)
+    # File URLs (include files app)
     path('files/', include('files.urls')),
     
     # Sharing APIs
