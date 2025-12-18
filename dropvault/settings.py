@@ -55,21 +55,25 @@ if IS_RAILWAY:
 # ═══════════════════════════════════════════════════════════
 # 📧 EMAIL CONFIGURATION
 # ═══════════════════════════════════════════════════════════
-# Force SMTP backend for real email sending
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# Resend API (works on Render free tier)
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 
+# SMTP fallback
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip()
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <onboarding@resend.dev>').strip()
 
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip('\'"')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip('\'"')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <noreply@dropvault.app>').strip('\'"')
-
-if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
-    print("⚠️ EMAIL CREDENTIALS MISSING - Falling back to console backend")
+if RESEND_API_KEY:
+    print(f"✅ Resend API configured")
+elif EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    print(f"✅ SMTP Email configured")
+else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-
+    print("⚠️ No email service configured - emails will only appear in logs")
 
 # ═══════════════════════════════════════════════════════════
 # 🗄️ DATABASE CONFIGURATION (Works for Docker, Local & Render)
@@ -448,3 +452,6 @@ LOGGING = {
         },
     },
 }
+
+
+##re_AcNkX8Pb_NopVYHbMdU85sJnX1BxmwyQE
