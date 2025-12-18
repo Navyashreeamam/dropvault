@@ -8,992 +8,627 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-      padding: 20px; 
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
+      padding: 20px;
     }
     .container { 
-      max-width: 1000px; 
+      max-width: 900px; 
       margin: 0 auto; 
       background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
       padding: 30px;
     }
     h1 { color: #333; margin-bottom: 5px; }
-    h2 { color: #555; margin: 20px 0 15px; font-size: 1.3em; }
-    .user-email { color: #666; margin-bottom: 20px; }
+    h2 { color: #555; font-size: 1.2em; margin: 20px 0 15px; }
+    .user-info { color: #666; margin-bottom: 25px; font-size: 0.95em; }
     
-    /* Upload Form */
-    .upload-section { 
+    /* Upload */
+    .upload-box { 
       background: #f8f9fa; 
-      padding: 20px; 
-      border-radius: 8px; 
-      margin-bottom: 20px;
-      border: 2px dashed #dee2e6;
+      border: 2px dashed #ddd; 
+      border-radius: 12px; 
+      padding: 25px;
+      margin-bottom: 25px;
+      transition: border-color 0.3s;
     }
-    .upload-section:hover { border-color: #667eea; }
-    #uploadForm { 
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    #uploadForm input[type="file"] {
-      flex: 1;
-      min-width: 200px;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background: #fff;
+    .upload-box:hover { border-color: #667eea; }
+    .upload-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .upload-form input[type="file"] { 
+      flex: 1; min-width: 200px; padding: 12px;
+      border: 1px solid #ddd; border-radius: 8px; background: #fff;
     }
     
     /* Buttons */
-    button, .btn { 
-      padding: 10px 18px; 
-      font-size: 14px; 
-      cursor: pointer; 
-      border: none;
-      border-radius: 6px;
+    .btn { 
+      padding: 12px 20px; border: none; border-radius: 8px; 
+      cursor: pointer; font-weight: 600; font-size: 14px;
+      display: inline-flex; align-items: center; gap: 6px;
       transition: all 0.2s;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
     }
-    button:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-    
-    .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
-    .btn-danger { background: #dc3545; color: white; }
-    .btn-success { background: #28a745; color: white; }
-    .btn-secondary { background: #6c757d; color: white; }
-    .btn-warning { background: #ffc107; color: #333; }
-    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .btn-success { background: #28a745; color: #fff; }
+    .btn-secondary { background: #6c757d; color: #fff; }
+    .btn-sm { padding: 8px 14px; font-size: 12px; }
     
     /* Tabs */
-    .tabs { 
-      display: flex; 
-      gap: 0; 
-      margin: 25px 0 20px;
-      border-bottom: 2px solid #eee;
-    }
+    .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; }
     .tab { 
-      padding: 12px 24px; 
-      background: transparent; 
-      border: none; 
-      border-bottom: 3px solid transparent;
-      cursor: pointer;
-      font-weight: 600;
-      color: #666;
-      margin-bottom: -2px;
-      transition: all 0.2s;
+      padding: 12px 24px; background: none; border: none;
+      border-bottom: 3px solid transparent; cursor: pointer;
+      font-weight: 600; color: #888; margin-bottom: -2px;
     }
     .tab:hover { color: #667eea; }
-    .tab.active { 
-      color: #667eea; 
-      border-bottom-color: #667eea;
-    }
-    
-    /* Content Sections */
-    .content-section {
-      background: #fff;
-      border-radius: 8px;
-      min-height: 200px;
-    }
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #eee;
-    }
+    .tab.active { color: #667eea; border-bottom-color: #667eea; }
     
     /* File List */
-    .file-list { list-style: none; }
     .file-item { 
-      padding: 15px; 
-      border: 1px solid #eee;
-      border-radius: 8px;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 15px;
-      flex-wrap: wrap;
-      transition: all 0.2s;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 15px; border: 1px solid #eee; border-radius: 10px;
+      margin-bottom: 10px; gap: 15px; flex-wrap: wrap;
     }
-    .file-item:hover { 
-      border-color: #667eea; 
-      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-    }
-    
+    .file-item:hover { border-color: #667eea; background: #fafafa; }
     .file-info { flex: 1; min-width: 200px; }
-    .file-name { 
-      font-weight: 600; 
-      color: #333; 
-      word-break: break-all;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .file-icon { font-size: 1.5em; }
-    .file-meta { color: #888; font-size: 0.85em; margin-top: 5px; }
+    .file-name { font-weight: 600; color: #333; display: flex; align-items: center; gap: 8px; }
+    .file-meta { color: #888; font-size: 0.85em; margin-top: 4px; }
+    .file-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     
-    .file-actions { 
-      display: flex; 
-      gap: 8px; 
-      flex-wrap: wrap;
-      align-items: center;
+    /* Share Menu */
+    .share-wrap { position: relative; }
+    .share-menu { 
+      display: none; position: absolute; right: 0; top: 100%;
+      background: #fff; border: 1px solid #ddd; border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2); padding: 20px;
+      z-index: 1000; min-width: 300px; margin-top: 8px;
     }
+    .share-menu.open { display: block; }
+    .share-menu h4 { margin: 0 0 15px; color: #333; }
+    .share-menu input, .share-menu textarea { 
+      width: 100%; padding: 10px; border: 1px solid #ddd; 
+      border-radius: 6px; margin-bottom: 10px; font-family: inherit;
+    }
+    .share-menu textarea { height: 60px; resize: vertical; }
+    .share-menu label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; font-size: 0.9em; }
+    .share-menu .btn { width: 100%; justify-content: center; margin-bottom: 10px; }
+    .share-menu hr { border: none; border-top: 1px solid #eee; margin: 15px 0; }
     
-    /* Share Dropdown */
-    .share-dropdown { position: relative; display: inline-block; }
-    .share-menu {
-      display: none;
-      position: absolute;
-      right: 0;
-      top: calc(100% + 5px);
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-      padding: 20px;
-      z-index: 1000;
-      min-width: 300px;
-    }
-    .share-menu.show { display: block; }
-    .share-menu::before {
-      content: '';
-      position: absolute;
-      top: -8px;
-      right: 20px;
-      border-left: 8px solid transparent;
-      border-right: 8px solid transparent;
-      border-bottom: 8px solid #fff;
-    }
-    .share-menu h4 { margin: 0 0 15px; color: #333; font-size: 1em; }
-    .share-menu input, .share-menu textarea {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      font-size: 14px;
-      margin-bottom: 10px;
-      font-family: inherit;
-    }
-    .share-menu input:focus, .share-menu textarea:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    .share-menu textarea { height: 70px; resize: vertical; }
-    .share-menu label { 
-      display: block; 
-      margin-bottom: 5px; 
-      font-weight: 500; 
-      color: #555;
-      font-size: 0.9em;
-    }
-    .share-divider {
-      border: none;
-      border-top: 1px solid #eee;
-      margin: 15px 0;
-    }
-    .share-menu .btn { width: 100%; justify-content: center; }
+    /* Status */
+    .status { padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 13px; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .status.loading { background: #fff3cd; color: #856404; }
+    .status.info { background: #d1ecf1; color: #0c5460; }
     
-    /* Status Messages */
-    .status { 
-      padding: 10px 15px; 
-      border-radius: 6px; 
-      margin-top: 10px; 
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .link-box { 
+      margin-top: 10px; padding: 10px; background: #e8f5e9; 
+      border-radius: 6px; display: none;
     }
-    .status.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-    .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-    .status.loading { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
-    .status.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+    .link-box input { margin: 0; font-size: 12px; }
+    .link-box small { display: block; margin-top: 5px; color: #2e7d32; }
     
-    /* Copy Link Input */
-    .copy-link-container {
-      display: none;
-      margin-top: 10px;
-      padding: 10px;
-      background: #e8f5e9;
-      border-radius: 6px;
-      border: 1px solid #c8e6c9;
-    }
-    .copy-link-container input {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #a5d6a7;
-      border-radius: 4px;
-      font-size: 12px;
-      background: #fff;
-      margin: 0;
-    }
-    .copy-link-container small {
-      display: block;
-      margin-top: 5px;
-      color: #2e7d32;
-      font-size: 11px;
-    }
-    
-    /* Trash Specific */
-    .trash-info {
-      background: #fff3cd;
-      border: 1px solid #ffeeba;
-      padding: 12px 15px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-      color: #856404;
-      font-size: 0.9em;
+    /* Trash */
+    .trash-notice { 
+      background: #fff3cd; border: 1px solid #ffeeba; 
+      padding: 12px 15px; border-radius: 8px; margin-bottom: 15px;
+      color: #856404; font-size: 0.9em;
     }
     .days-badge { 
-      display: inline-block; 
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 0.8em;
-      font-weight: 600;
-      margin-top: 5px;
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 0.8em; font-weight: 600; margin-top: 5px;
     }
     .days-badge.safe { background: #d4edda; color: #155724; }
-    .days-badge.warning { background: #fff3cd; color: #856404; }
+    .days-badge.warn { background: #fff3cd; color: #856404; }
     .days-badge.danger { background: #f8d7da; color: #721c24; }
     
-    .empty-state { 
-      text-align: center; 
-      padding: 60px 20px; 
-      color: #888;
-    }
-    .empty-state .icon { font-size: 4em; margin-bottom: 15px; opacity: 0.5; }
-    .empty-state h3 { color: #666; margin-bottom: 10px; }
-    .empty-state p { font-size: 0.95em; }
+    /* Empty State */
+    .empty { text-align: center; padding: 50px 20px; color: #888; }
+    .empty .icon { font-size: 3.5em; margin-bottom: 15px; opacity: 0.5; }
+    .empty h3 { color: #666; margin-bottom: 10px; }
     
-    /* Shared Links Section */
-    .shared-section {
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 2px solid #eee;
+    /* Spinner */
+    .spinner { 
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid #ddd; border-top-color: #667eea;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
     }
-    .shared-link-item {
-      padding: 15px;
-      border: 1px solid #eee;
-      border-radius: 8px;
-      margin-bottom: 10px;
-    }
-    .shared-link-item:hover { border-color: #667eea; }
-    .link-url { 
-      font-family: monospace; 
-      background: #f8f9fa; 
-      padding: 5px 10px; 
-      border-radius: 4px;
-      font-size: 0.85em;
-      word-break: break-all;
-    }
-    .link-stats { 
-      display: flex; 
-      gap: 15px; 
-      margin-top: 8px; 
-      font-size: 0.85em; 
-      color: #666; 
-    }
-    .link-status { font-weight: 600; }
-    .link-status.active { color: #28a745; }
-    .link-status.expired { color: #dc3545; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     
-    /* Loading Spinner */
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid #ddd;
-      border-top-color: #667eea;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    /* Shared Links */
+    .shared-section { margin-top: 30px; padding-top: 20px; border-top: 2px solid #eee; }
+    .shared-item { padding: 12px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 10px; }
+    .shared-url { font-family: monospace; font-size: 0.85em; background: #f5f5f5; padding: 5px 8px; border-radius: 4px; }
+    .shared-stats { font-size: 0.85em; color: #666; margin-top: 5px; }
     
-    /* Responsive */
-    @media (max-width: 600px) {
-      body { padding: 10px; }
-      .container { padding: 15px; }
-      .file-item { flex-direction: column; align-items: flex-start; }
-      .file-actions { width: 100%; justify-content: flex-start; margin-top: 10px; }
-      .share-menu { left: 0; right: auto; min-width: 260px; }
+    /* Session expired modal */
+    .modal { 
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5); z-index: 9999; 
+      justify-content: center; align-items: center;
     }
+    .modal.show { display: flex; }
+    .modal-box { 
+      background: #fff; padding: 30px; border-radius: 12px; 
+      max-width: 400px; text-align: center;
+    }
+    .modal-box h3 { margin-bottom: 15px; color: #333; }
+    .modal-box p { margin-bottom: 20px; color: #666; }
   </style>
 </head>
 <body>
+
+<!-- Session Expired Modal -->
+<div id="sessionModal" class="modal">
+  <div class="modal-box">
+    <h3>⚠️ Session Expired</h3>
+    <p>Your login session has expired. Please login again to continue.</p>
+    <a href="/accounts/login/" class="btn btn-primary">🔐 Login Again</a>
+  </div>
+</div>
+
 <div class="container">
   <h1>📁 DropVault</h1>
-  <p class="user-email">Welcome, <strong>{{ user.email }}</strong></p>
+  <p class="user-info">Welcome, <strong>{{ user.email }}</strong></p>
 
-  <!-- Upload Section -->
-  <div class="upload-section">
-    <form id="uploadForm" enctype="multipart/form-data">
+  <!-- Upload -->
+  <div class="upload-box">
+    <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="file" name="file" id="fileInput" required>
-      <button type="submit" class="btn btn-primary" id="uploadBtn">
-        📤 Upload File
-      </button>
+      <button type="submit" class="btn btn-primary" id="uploadBtn">📤 Upload</button>
     </form>
     <div id="uploadStatus"></div>
   </div>
 
   <!-- Tabs -->
   <div class="tabs">
-    <button id="files-tab" class="tab active" onclick="showTab('files')">
-      📁 My Files
-    </button>
-    <button id="trash-tab" class="tab" onclick="showTab('trash')">
-      🗑️ Trash (<span id="trash-count">0</span>)
-    </button>
+    <button class="tab active" data-tab="files">📁 My Files</button>
+    <button class="tab" data-tab="trash">🗑️ Trash (<span id="trashCount">0</span>)</button>
   </div>
 
   <!-- Files Section -->
-  <div id="files-section" class="content-section">
-    <div class="section-header">
+  <div id="filesSection">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
       <h2>Your Files</h2>
       <button onclick="loadFiles()" class="btn btn-secondary btn-sm">🔄 Refresh</button>
     </div>
-    <ul id="fileList" class="file-list">
-      <li class="empty-state">
-        <div class="icon">📂</div>
-        <h3>Loading...</h3>
-      </li>
-    </ul>
+    <div id="fileList">
+      <div class="empty"><div class="spinner" style="width:40px;height:40px;border-width:3px;"></div><h3 style="margin-top:15px;">Loading...</h3></div>
+    </div>
   </div>
 
   <!-- Trash Section -->
-  <div id="trash-section" class="content-section" style="display: none;">
-    <div class="section-header">
+  <div id="trashSection" style="display:none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
       <h2>🗑️ Trash</h2>
-      <button onclick="loadTrashFiles()" class="btn btn-secondary btn-sm">🔄 Refresh</button>
+      <button onclick="loadTrash()" class="btn btn-secondary btn-sm">🔄 Refresh</button>
     </div>
-    <div class="trash-info">
-      ⚠️ Files in trash will be <strong>permanently deleted after 30 days</strong>. 
-      Restore them before it's too late!
-    </div>
+    <div class="trash-notice">⚠️ Files are permanently deleted after 30 days</div>
     <div id="trashList">
-      <div class="empty-state">
-        <div class="icon">🗑️</div>
-        <h3>Loading...</h3>
-      </div>
+      <div class="empty"><div class="spinner" style="width:40px;height:40px;border-width:3px;"></div><h3 style="margin-top:15px;">Loading...</h3></div>
     </div>
   </div>
 
-  <!-- Shared Links Section -->
+  <!-- Shared Links -->
   <div class="shared-section">
     <h2>🔗 Shared Links</h2>
     {% if shared_links %}
       {% for link in shared_links %}
-        <div class="shared-link-item">
+        <div class="shared-item">
           <strong>📄 {{ link.file.original_name }}</strong>
-          {% if link.slug %}
-            <div class="link-url">/s/{{ link.slug }}/</div>
-          {% endif %}
-          <div class="link-stats">
-            <span>👁️ Views: {{ link.view_count }}</span>
-            <span>⬇️ Downloads: {{ link.download_count }}/{{ link.max_downloads }}</span>
-            <span class="link-status {% if link.is_expired %}expired{% else %}active{% endif %}">
-              {% if link.is_expired %}❌ Expired{% else %}✅ Active{% endif %}
-            </span>
+          <div class="shared-url">/s/{{ link.slug }}/</div>
+          <div class="shared-stats">
+            👁️ {{ link.view_count }} views • ⬇️ {{ link.download_count }}/{{ link.max_downloads }} downloads •
+            {% if link.is_expired %}<span style="color:#dc3545;">❌ Expired</span>{% else %}<span style="color:#28a745;">✅ Active</span>{% endif %}
           </div>
         </div>
       {% endfor %}
     {% else %}
-      <div class="empty-state" style="padding: 30px;">
-        <p>No shared links yet. Share a file to see it here!</p>
-      </div>
+      <div class="empty" style="padding:20px;"><p>No shared links yet</p></div>
     {% endif %}
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// 🔧 CONFIGURATION
+// CONFIGURATION
 // ═══════════════════════════════════════════════════════════
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token }}';
-let currentTab = 'files';
-
-console.log('🚀 Dashboard loaded');
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '{{ csrf_token }}';
 
 // ═══════════════════════════════════════════════════════════
-// 📑 TAB SWITCHING
+// SESSION CHECK
 // ═══════════════════════════════════════════════════════════
-function showTab(tab) {
-  currentTab = tab;
+function showSessionExpired() {
+  document.getElementById('sessionModal').classList.add('show');
+}
+
+function checkResponse(response, data) {
+  // Check if session expired
+  if (response.status === 401 || (data && data.login_required)) {
+    showSessionExpired();
+    return false;
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// API CALL WRAPPER
+// ═══════════════════════════════════════════════════════════
+async function apiCall(url, options = {}) {
+  const defaultOptions = {
+    headers: {
+      'X-CSRFToken': csrfToken,
+      'Accept': 'application/json',
+      ...options.headers
+    },
+    credentials: 'same-origin'
+  };
   
-  // Update tab buttons
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById(tab + '-tab').classList.add('active');
+  const mergedOptions = { ...defaultOptions, ...options, headers: { ...defaultOptions.headers, ...options.headers } };
   
-  // Show/hide sections
-  document.getElementById('files-section').style.display = tab === 'files' ? 'block' : 'none';
-  document.getElementById('trash-section').style.display = tab === 'trash' ? 'block' : 'none';
-  
-  // Load data
-  if (tab === 'files') {
-    loadFiles();
-  } else {
-    loadTrashFiles();
+  try {
+    const response = await fetch(url, mergedOptions);
+    
+    // Check content type
+    const contentType = response.headers.get('content-type') || '';
+    
+    if (!contentType.includes('application/json')) {
+      // Server returned HTML (session expired or error)
+      console.error('Server returned HTML instead of JSON');
+      if (response.status === 401 || response.status === 403 || response.status === 302) {
+        showSessionExpired();
+      }
+      throw new Error('Session expired. Please login again.');
+    }
+    
+    const data = await response.json();
+    
+    if (!checkResponse(response, data)) {
+      throw new Error('Session expired');
+    }
+    
+    return { response, data };
+    
+  } catch (error) {
+    if (error.message.includes('Failed to fetch')) {
+      throw new Error('Network error. Please check your connection.');
+    }
+    throw error;
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📤 UPLOAD FILE
+// TABS
+// ═══════════════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    const tabName = tab.dataset.tab;
+    document.getElementById('filesSection').style.display = tabName === 'files' ? 'block' : 'none';
+    document.getElementById('trashSection').style.display = tabName === 'trash' ? 'block' : 'none';
+    
+    if (tabName === 'files') loadFiles();
+    else loadTrash();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// UPLOAD
 // ═══════════════════════════════════════════════════════════
 document.getElementById('uploadForm').addEventListener('submit', async function(e) {
   e.preventDefault();
   
   const fileInput = document.getElementById('fileInput');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const statusDiv = document.getElementById('uploadStatus');
+  const btn = document.getElementById('uploadBtn');
+  const status = document.getElementById('uploadStatus');
   
-  if (!fileInput.files || fileInput.files.length === 0) {
-    statusDiv.innerHTML = '<div class="status error">❌ Please select a file</div>';
+  if (!fileInput.files.length) {
+    status.innerHTML = '<div class="status error">❌ Please select a file</div>';
     return;
   }
   
   const file = fileInput.files[0];
-  console.log('📤 Uploading:', file.name, formatFileSize(file.size));
+  console.log('📤 Uploading:', file.name);
   
-  // Show loading
-  uploadBtn.disabled = true;
-  uploadBtn.innerHTML = '<span class="spinner"></span> Uploading...';
-  statusDiv.innerHTML = `<div class="status loading"><span class="spinner"></span> Uploading ${escapeHtml(file.name)}...</div>`;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Uploading...';
+  status.innerHTML = '<div class="status loading"><span class="spinner"></span> Uploading...</div>';
   
   const formData = new FormData();
   formData.append('file', file);
   
   try {
-    const response = await fetch('/files/upload/', {
+    const { response, data } = await apiCall('/files/upload/', {
       method: 'POST',
       body: formData,
-      headers: { 'X-CSRFToken': csrfToken },
-      credentials: 'same-origin'
+      headers: {} // Let browser set content-type for FormData
     });
     
-    const data = await response.json();
-    console.log('📤 Response:', response.status, data);
-    
     if (response.ok) {
-      statusDiv.innerHTML = `<div class="status success">✅ "${escapeHtml(file.name)}" uploaded successfully!</div>`;
+      status.innerHTML = '<div class="status success">✅ Uploaded successfully!</div>';
       fileInput.value = '';
       loadFiles();
-      
-      setTimeout(() => { statusDiv.innerHTML = ''; }, 4000);
+      setTimeout(() => status.innerHTML = '', 4000);
     } else {
       throw new Error(data.error || data.message || 'Upload failed');
     }
   } catch (error) {
-    console.error('❌ Upload error:', error);
-    statusDiv.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
+    console.error('Upload error:', error);
+    status.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
   } finally {
-    uploadBtn.disabled = false;
-    uploadBtn.innerHTML = '📤 Upload File';
+    btn.disabled = false;
+    btn.innerHTML = '📤 Upload';
   }
 });
 
 // ═══════════════════════════════════════════════════════════
-// 📂 LOAD FILES
+// LOAD FILES
 // ═══════════════════════════════════════════════════════════
 async function loadFiles() {
-  console.log('📂 Loading files...');
-  const fileList = document.getElementById('fileList');
-  
-  fileList.innerHTML = `
-    <li class="empty-state">
-      <div class="spinner" style="width: 40px; height: 40px; border-width: 3px;"></div>
-      <h3 style="margin-top: 15px;">Loading files...</h3>
-    </li>
-  `;
+  const list = document.getElementById('fileList');
+  list.innerHTML = '<div class="empty"><span class="spinner" style="width:40px;height:40px;border-width:3px;"></span><h3 style="margin-top:15px;">Loading...</h3></div>';
   
   try {
-    const response = await fetch('/api/list/', {
-      headers: { 'X-CSRFToken': csrfToken },
-      credentials: 'same-origin'
-    });
+    const { response, data } = await apiCall('/api/list/');
     
-    if (!response.ok) throw new Error('Failed to fetch files');
-    
-    const files = await response.json();
-    console.log('📂 Loaded:', files.length, 'files');
-    
-    if (!Array.isArray(files) || files.length === 0) {
-      fileList.innerHTML = `
-        <li class="empty-state">
-          <div class="icon">📁</div>
-          <h3>No files yet</h3>
-          <p>Upload your first file using the form above!</p>
-        </li>
-      `;
+    if (!Array.isArray(data) || data.length === 0) {
+      list.innerHTML = '<div class="empty"><div class="icon">📁</div><h3>No files yet</h3><p>Upload your first file!</p></div>';
       return;
     }
     
-    fileList.innerHTML = files.map(f => createFileItem(f)).join('');
-    
-  } catch (error) {
-    console.error('❌ Load error:', error);
-    fileList.innerHTML = `
-      <li class="empty-state">
-        <div class="icon">❌</div>
-        <h3>Error loading files</h3>
-        <p>${escapeHtml(error.message)}</p>
-        <button onclick="loadFiles()" class="btn btn-primary" style="margin-top: 15px;">Try Again</button>
-      </li>
-    `;
-  }
-}
-
-function createFileItem(f) {
-  const fileName = f.original_name || f.filename;
-  const fileId = f.id;
-  const ext = fileName.split('.').pop().toLowerCase();
-  const icon = getFileIcon(ext);
-  
-  return `
-    <li class="file-item" data-file-id="${fileId}">
-      <div class="file-info">
-        <div class="file-name">
-          <span class="file-icon">${icon}</span>
-          ${escapeHtml(fileName)}
+    list.innerHTML = data.map(f => `
+      <div class="file-item" data-id="${f.id}">
+        <div class="file-info">
+          <div class="file-name">${getIcon(f.filename)} ${escapeHtml(f.filename)}</div>
+          <div class="file-meta">${formatSize(f.size)} • ${formatDate(f.uploaded_at)}</div>
         </div>
-        <div class="file-meta">
-          ${formatFileSize(f.size)} • ${formatDate(f.uploaded_at)}
-        </div>
-      </div>
-      <div class="file-actions">
-        <button onclick="deleteFile(${fileId}, '${escapeJs(fileName)}')" class="btn btn-danger btn-sm">
-          🗑️ Delete
-        </button>
-        <div class="share-dropdown">
-          <button onclick="toggleShare(event, ${fileId})" class="btn btn-primary btn-sm">
-            📤 Share
-          </button>
-          <div id="share-menu-${fileId}" class="share-menu">
-            <h4>📤 Share File</h4>
-            
-            <button onclick="copyLink(${fileId})" class="btn btn-secondary">
-              🔗 Copy Share Link
-            </button>
-            
-            <div id="link-container-${fileId}" class="copy-link-container">
-              <input type="text" id="link-input-${fileId}" readonly onclick="this.select()">
-              <small>✅ Link copied! Anyone with this link can download.</small>
+        <div class="file-actions">
+          <button onclick="deleteFile(${f.id})" class="btn btn-danger btn-sm">🗑️ Delete</button>
+          <div class="share-wrap">
+            <button onclick="toggleShare(${f.id})" class="btn btn-primary btn-sm">📤 Share</button>
+            <div id="shareMenu${f.id}" class="share-menu">
+              <h4>📤 Share File</h4>
+              <button onclick="copyLink(${f.id})" class="btn btn-secondary">🔗 Copy Link</button>
+              <div id="linkBox${f.id}" class="link-box">
+                <input type="text" id="linkInput${f.id}" readonly onclick="this.select()">
+                <small>✅ Click to copy</small>
+              </div>
+              <hr>
+              <label>📧 Send to email:</label>
+              <input type="email" id="email${f.id}" placeholder="recipient@example.com">
+              <label>Message (optional):</label>
+              <textarea id="msg${f.id}" placeholder="Hey, check this out!"></textarea>
+              <button onclick="sendEmail(${f.id})" class="btn btn-success">📧 Send</button>
+              <div id="shareStatus${f.id}"></div>
             </div>
-            
-            <hr class="share-divider">
-            
-            <label>📧 Email to:</label>
-            <input type="email" id="email-${fileId}" placeholder="recipient@example.com">
-            
-            <label>Message (optional):</label>
-            <textarea id="message-${fileId}" placeholder="Hey, check out this file!"></textarea>
-            
-            <button onclick="sendEmail(${fileId})" class="btn btn-success">
-              📧 Send Email
-            </button>
-            
-            <div id="share-status-${fileId}"></div>
           </div>
         </div>
       </div>
-    </li>
-  `;
+    `).join('');
+    
+  } catch (error) {
+    console.error('Load error:', error);
+    list.innerHTML = `<div class="empty"><div class="icon">❌</div><h3>Error</h3><p>${escapeHtml(error.message)}</p></div>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🗑️ DELETE FILE
+// DELETE FILE
 // ═══════════════════════════════════════════════════════════
-async function deleteFile(fileId, fileName) {
-  if (!confirm(`Move "${fileName}" to trash?`)) return;
-  
-  console.log('🗑️ Deleting:', fileId);
+async function deleteFile(id) {
+  if (!confirm('Move to trash?')) return;
   
   try {
-    const response = await fetch(`/files/delete/${fileId}/`, {
+    const { response, data } = await apiCall(`/files/delete/${id}/`, {
       method: 'POST',
-      headers: { 
-        'X-CSRFToken': csrfToken,
-        'Content-Type': 'application/json'
-      },
-      credentials: 'same-origin'
+      headers: { 'Content-Type': 'application/json' }
     });
     
-    const data = await response.json();
-    console.log('🗑️ Response:', data);
-    
     if (response.ok) {
-      // Animate removal
-      const item = document.querySelector(`[data-file-id="${fileId}"]`);
-      if (item) {
-        item.style.transition = 'all 0.3s';
-        item.style.opacity = '0';
-        item.style.transform = 'translateX(20px)';
-        setTimeout(() => {
-          item.remove();
-          // Check if list is empty
-          const fileList = document.getElementById('fileList');
-          if (!fileList.querySelector('.file-item')) {
-            fileList.innerHTML = `
-              <li class="empty-state">
-                <div class="icon">📁</div>
-                <h3>No files</h3>
-                <p>All files have been moved to trash</p>
-              </li>
-            `;
-          }
-        }, 300);
-      }
+      document.querySelector(`[data-id="${id}"]`)?.remove();
       updateTrashCount();
     } else {
       throw new Error(data.error || 'Delete failed');
     }
   } catch (error) {
-    console.error('❌ Delete error:', error);
     alert('❌ ' + error.message);
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🗑️ LOAD TRASH
+// LOAD TRASH
 // ═══════════════════════════════════════════════════════════
-async function loadTrashFiles() {
-  console.log('🗑️ Loading trash...');
-  const trashList = document.getElementById('trashList');
-  
-  trashList.innerHTML = `
-    <div class="empty-state">
-      <div class="spinner" style="width: 40px; height: 40px; border-width: 3px;"></div>
-      <h3 style="margin-top: 15px;">Loading trash...</h3>
-    </div>
-  `;
+async function loadTrash() {
+  const list = document.getElementById('trashList');
+  list.innerHTML = '<div class="empty"><span class="spinner" style="width:40px;height:40px;border-width:3px;"></span><h3 style="margin-top:15px;">Loading...</h3></div>';
   
   try {
-    const response = await fetch('/api/trash/', {
-      headers: { 'X-CSRFToken': csrfToken },
-      credentials: 'same-origin'
-    });
+    const { response, data } = await apiCall('/api/trash/');
     
-    console.log('🗑️ Response status:', response.status);
+    document.getElementById('trashCount').textContent = data.length;
     
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    
-    const data = await response.json();
-    console.log('🗑️ Trash data:', data);
-    
-    const files = Array.isArray(data) ? data : [];
-    document.getElementById('trash-count').textContent = files.length;
-    
-    if (files.length === 0) {
-      trashList.innerHTML = `
-        <div class="empty-state">
-          <div class="icon">🗑️</div>
-          <h3>Trash is empty</h3>
-          <p>Deleted files will appear here</p>
-        </div>
-      `;
+    if (!Array.isArray(data) || data.length === 0) {
+      list.innerHTML = '<div class="empty"><div class="icon">🗑️</div><h3>Trash is empty</h3></div>';
       return;
     }
     
-    trashList.innerHTML = files.map(f => createTrashItem(f)).join('');
+    list.innerHTML = data.map(f => {
+      const days = f.days_remaining ?? 30;
+      const cls = days <= 7 ? 'danger' : days <= 14 ? 'warn' : 'safe';
+      return `
+        <div class="file-item" data-trash-id="${f.id}">
+          <div class="file-info">
+            <div class="file-name">📄 ${escapeHtml(f.filename)}</div>
+            <div class="file-meta">${formatSize(f.size)}</div>
+            <span class="days-badge ${cls}">⏰ ${days} days left</span>
+          </div>
+          <div class="file-actions">
+            <button onclick="restoreFile(${f.id})" class="btn btn-success btn-sm">♻️ Restore</button>
+          </div>
+        </div>
+      `;
+    }).join('');
     
   } catch (error) {
-    console.error('❌ Trash error:', error);
-    trashList.innerHTML = `
-      <div class="empty-state">
-        <div class="icon">❌</div>
-        <h3>Error loading trash</h3>
-        <p>${escapeHtml(error.message)}</p>
-        <button onclick="loadTrashFiles()" class="btn btn-primary" style="margin-top: 15px;">Try Again</button>
-      </div>
-    `;
+    console.error('Trash error:', error);
+    list.innerHTML = `<div class="empty"><div class="icon">❌</div><h3>Error</h3><p>${escapeHtml(error.message)}</p></div>`;
   }
 }
 
-function createTrashItem(f) {
-  const fileName = f.filename || f.original_name;
-  const days = f.days_remaining ?? 30;
-  let daysClass = 'safe';
-  if (days <= 7) daysClass = 'danger';
-  else if (days <= 14) daysClass = 'warning';
-  
-  const deletedDate = f.deleted_at 
-    ? new Date(f.deleted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : 'Unknown';
-  
-  return `
-    <div class="file-item" data-trash-id="${f.id}">
-      <div class="file-info">
-        <div class="file-name">
-          <span class="file-icon">📄</span>
-          ${escapeHtml(fileName)}
-        </div>
-        <div class="file-meta">
-          ${formatFileSize(f.size)} • Deleted: ${deletedDate}
-        </div>
-        <span class="days-badge ${daysClass}">
-          ⏰ ${days} days left
-        </span>
-      </div>
-      <div class="file-actions">
-        <button onclick="restoreFile(${f.id}, '${escapeJs(fileName)}')" class="btn btn-success btn-sm">
-          ♻️ Restore
-        </button>
-      </div>
-    </div>
-  `;
-}
-
 // ═══════════════════════════════════════════════════════════
-// ♻️ RESTORE FILE
+// RESTORE FILE
 // ═══════════════════════════════════════════════════════════
-async function restoreFile(fileId, fileName) {
-  if (!confirm(`Restore "${fileName}"?`)) return;
-  
-  console.log('♻️ Restoring:', fileId);
+async function restoreFile(id) {
+  if (!confirm('Restore this file?')) return;
   
   try {
-    const response = await fetch(`/api/restore/${fileId}/`, {
+    const { response, data } = await apiCall(`/api/restore/${id}/`, {
       method: 'POST',
-      headers: { 
-        'X-CSRFToken': csrfToken,
-        'Content-Type': 'application/json'
-      },
-      credentials: 'same-origin'
+      headers: { 'Content-Type': 'application/json' }
     });
     
-    const data = await response.json();
-    console.log('♻️ Response:', data);
-    
-    if (response.ok && (data.status === 'success' || data.success)) {
-      // Animate removal from trash
-      const item = document.querySelector(`[data-trash-id="${fileId}"]`);
-      if (item) {
-        item.style.transition = 'all 0.3s';
-        item.style.opacity = '0';
-        item.style.background = '#d4edda';
-        setTimeout(() => {
-          item.remove();
-          updateTrashCount();
-          // Check if trash is empty
-          const trashList = document.getElementById('trashList');
-          if (!trashList.querySelector('.file-item')) {
-            trashList.innerHTML = `
-              <div class="empty-state">
-                <div class="icon">🗑️</div>
-                <h3>Trash is empty</h3>
-                <p>Deleted files will appear here</p>
-              </div>
-            `;
-          }
-        }, 300);
-      }
+    if (response.ok) {
+      document.querySelector(`[data-trash-id="${id}"]`)?.remove();
+      updateTrashCount();
       alert('✅ File restored!');
     } else {
-      throw new Error(data.error || data.message || 'Restore failed');
+      throw new Error(data.error || 'Restore failed');
     }
   } catch (error) {
-    console.error('❌ Restore error:', error);
     alert('❌ ' + error.message);
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📤 SHARING
+// SHARE FUNCTIONS
 // ═══════════════════════════════════════════════════════════
-function toggleShare(event, fileId) {
-  event.stopPropagation();
-  
-  // Close all other menus
-  document.querySelectorAll('.share-menu').forEach(menu => {
-    if (menu.id !== `share-menu-${fileId}`) {
-      menu.classList.remove('show');
-    }
+function toggleShare(id) {
+  document.querySelectorAll('.share-menu').forEach(m => {
+    if (m.id !== `shareMenu${id}`) m.classList.remove('open');
   });
-  
-  const menu = document.getElementById(`share-menu-${fileId}`);
-  menu.classList.toggle('show');
+  document.getElementById(`shareMenu${id}`).classList.toggle('open');
 }
 
-// Close menus on outside click
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('.share-dropdown')) {
-    document.querySelectorAll('.share-menu').forEach(m => m.classList.remove('show'));
+document.addEventListener('click', e => {
+  if (!e.target.closest('.share-wrap')) {
+    document.querySelectorAll('.share-menu').forEach(m => m.classList.remove('open'));
   }
 });
 
-async function copyLink(fileId) {
-  console.log('🔗 Creating link for:', fileId);
-  const statusDiv = document.getElementById(`share-status-${fileId}`);
-  const linkContainer = document.getElementById(`link-container-${fileId}`);
-  const linkInput = document.getElementById(`link-input-${fileId}`);
+async function copyLink(id) {
+  const status = document.getElementById(`shareStatus${id}`);
+  const linkBox = document.getElementById(`linkBox${id}`);
+  const linkInput = document.getElementById(`linkInput${id}`);
   
-  statusDiv.innerHTML = '<div class="status loading"><span class="spinner"></span> Creating link...</div>';
+  status.innerHTML = '<div class="status loading"><span class="spinner"></span> Creating...</div>';
   
   try {
-    const response = await fetch(`/files/share/${fileId}/`, {
+    const { response, data } = await apiCall(`/files/share/${id}/`, {
       method: 'POST',
-      headers: { 
-        'X-CSRFToken': csrfToken,
-        'Content-Type': 'application/json'
-      },
-      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
       body: '{}'
     });
-    
-    const data = await response.json();
-    console.log('🔗 Response:', data);
     
     if (!response.ok) throw new Error(data.error || 'Failed');
     
     const url = data.share_url || data.link;
-    if (!url) throw new Error('No URL returned');
-    
     linkInput.value = url;
-    linkContainer.style.display = 'block';
+    linkBox.style.display = 'block';
     linkInput.select();
     
     try {
       await navigator.clipboard.writeText(url);
-      statusDiv.innerHTML = '<div class="status success">✅ Link copied!</div>';
+      status.innerHTML = '<div class="status success">✅ Copied!</div>';
     } catch {
-      statusDiv.innerHTML = '<div class="status info">📋 Select and copy the link above</div>';
+      status.innerHTML = '<div class="status info">📋 Copy the link above</div>';
     }
     
-    setTimeout(() => { statusDiv.innerHTML = ''; }, 3000);
+    setTimeout(() => status.innerHTML = '', 3000);
     
   } catch (error) {
-    console.error('❌ Link error:', error);
-    statusDiv.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
+    status.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
   }
 }
 
-async function sendEmail(fileId) {
-  const emailInput = document.getElementById(`email-${fileId}`);
-  const messageInput = document.getElementById(`message-${fileId}`);
-  const statusDiv = document.getElementById(`share-status-${fileId}`);
+async function sendEmail(id) {
+  const email = document.getElementById(`email${id}`).value.trim();
+  const msg = document.getElementById(`msg${id}`).value.trim();
+  const status = document.getElementById(`shareStatus${id}`);
   
-  const email = emailInput.value.trim();
-  const message = messageInput.value.trim();
-  
-  if (!email) {
-    statusDiv.innerHTML = '<div class="status error">❌ Please enter an email address</div>';
+  if (!email || !email.includes('@')) {
+    status.innerHTML = '<div class="status error">❌ Enter valid email</div>';
     return;
   }
   
-  if (!email.includes('@') || !email.includes('.')) {
-    statusDiv.innerHTML = '<div class="status error">❌ Please enter a valid email</div>';
-    return;
-  }
-  
-  console.log('📧 Sending to:', email);
-  statusDiv.innerHTML = '<div class="status loading"><span class="spinner"></span> Sending...</div>';
+  status.innerHTML = '<div class="status loading"><span class="spinner"></span> Sending...</div>';
   
   try {
-    const response = await fetch(`/files/share/${fileId}/email/`, {
+    const { response, data } = await apiCall(`/files/share/${id}/email/`, {
       method: 'POST',
-      headers: { 
-        'X-CSRFToken': csrfToken,
-        'Content-Type': 'application/json'
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify({ 
-        recipient_email: email, 
-        message: message 
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient_email: email, message: msg })
     });
     
-    const data = await response.json();
-    console.log('📧 Response:', data);
-    
-    if (!response.ok) throw new Error(data.error || 'Failed to share');
+    if (!response.ok) throw new Error(data.error || 'Failed');
     
     if (data.email_sent) {
-      statusDiv.innerHTML = `<div class="status success">✅ Email sent to ${escapeHtml(email)}!</div>`;
-      emailInput.value = '';
-      messageInput.value = '';
+      status.innerHTML = `<div class="status success">✅ Sent to ${escapeHtml(email)}!</div>`;
+      document.getElementById(`email${id}`).value = '';
+      document.getElementById(`msg${id}`).value = '';
     } else {
-      const url = data.share_url || '';
-      statusDiv.innerHTML = `
-        <div class="status info">
-          ⚠️ Email not sent. Share this link manually:<br>
-          <input type="text" value="${escapeHtml(url)}" onclick="this.select()" readonly style="margin-top: 8px; font-size: 11px;">
-        </div>
-      `;
+      status.innerHTML = `<div class="status info">⚠️ Link created but email failed.<br>Share manually: <input value="${data.share_url}" onclick="this.select()" readonly style="width:100%;margin-top:5px;font-size:11px;"></div>`;
     }
     
   } catch (error) {
-    console.error('❌ Email error:', error);
-    statusDiv.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
+    status.innerHTML = `<div class="status error">❌ ${escapeHtml(error.message)}</div>`;
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🔧 HELPERS
+// HELPERS
 // ═══════════════════════════════════════════════════════════
 async function updateTrashCount() {
   try {
-    const response = await fetch('/api/trash/', {
-      headers: { 'X-CSRFToken': csrfToken },
-      credentials: 'same-origin'
-    });
-    const data = await response.json();
-    const count = Array.isArray(data) ? data.length : 0;
-    document.getElementById('trash-count').textContent = count;
-  } catch (e) {
-    console.error('Count error:', e);
-  }
+    const { data } = await apiCall('/api/trash/');
+    document.getElementById('trashCount').textContent = Array.isArray(data) ? data.length : 0;
+  } catch {}
 }
 
-function formatFileSize(bytes) {
-  if (!bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+function formatSize(b) {
+  if (!b) return '0 B';
+  const k = 1024, s = ['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(b)/Math.log(k));
+  return (b/Math.pow(k,i)).toFixed(1) + ' ' + s[i];
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function escapeHtml(t) {
+  if (!t) return '';
+  const d = document.createElement('div');
+  d.textContent = t;
+  return d.innerHTML;
 }
 
-function escapeJs(text) {
-  if (!text) return '';
-  return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
-}
-
-function getFileIcon(ext) {
-  const icons = {
-    'pdf': '📕', 'doc': '📘', 'docx': '📘', 'txt': '📄',
-    'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️',
-    'mp4': '🎬', 'mp3': '🎵', 'zip': '📦', 'rar': '📦',
-    'xlsx': '📊', 'csv': '📊', 'ppt': '📙', 'pptx': '📙'
-  };
+function getIcon(n) {
+  const ext = (n || '').split('.').pop().toLowerCase();
+  const icons = { pdf:'📕', doc:'📘', docx:'📘', txt:'📄', jpg:'🖼️', jpeg:'🖼️', png:'🖼️', gif:'🖼️', mp4:'🎬', mp3:'🎵', zip:'📦' };
   return icons[ext] || '📄';
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🚀 INIT
+// INIT
 // ═══════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', function() {
-  console.log('🚀 Initializing dashboard...');
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('🚀 Dashboard loaded');
   loadFiles();
   updateTrashCount();
 });

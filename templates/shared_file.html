@@ -1,96 +1,27 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>{{ file.original_name }} - DropVault Share</title>
+  <title>{{ file.original_name }} - DropVault</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .card {
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      max-width: 450px;
-      width: 100%;
-      padding: 40px;
-      text-align: center;
-    }
+    body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #667eea, #764ba2); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px; }
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 100%; padding: 40px; text-align: center; }
     .icon { font-size: 4em; margin-bottom: 20px; }
-    h1 { font-size: 1.5em; color: #333; margin-bottom: 10px; word-break: break-word; }
-    .meta { color: #666; margin-bottom: 25px; font-size: 0.95em; }
-    .meta span { display: inline-block; margin: 0 10px; }
-    .download-btn {
-      display: inline-block;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-      padding: 15px 40px;
-      border-radius: 30px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 1.1em;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .download-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-    }
-    .stats {
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-      font-size: 0.85em;
-      color: #888;
-    }
-    .stats span { margin: 0 8px; }
-    .warning {
-      margin-top: 20px;
-      padding: 12px;
-      background: #fff3cd;
-      border-radius: 8px;
-      color: #856404;
-      font-size: 0.85em;
-    }
-    .footer {
-      margin-top: 30px;
-      font-size: 0.8em;
-      color: #aaa;
-    }
+    h1 { font-size: 1.3em; color: #333; margin-bottom: 10px; word-break: break-word; }
+    .meta { color: #666; margin-bottom: 20px; }
+    .btn { display: inline-block; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 15px 35px; border-radius: 30px; text-decoration: none; font-weight: 600; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(102,126,234,0.4); }
+    .stats { margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.85em; color: #888; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="icon">📄</div>
     <h1>{{ file.original_name }}</h1>
-    <div class="meta">
-      <span>📦 {{ file.size|filesizeformat }}</span>
-      <span>📅 {{ file.uploaded_at|date:"M d, Y" }}</span>
-    </div>
-    
-    <a href="{{ download_url }}" class="download-btn">
-      ⬇️ Download File
-    </a>
-    
+    <div class="meta">{{ file.size|filesizeformat }}</div>
+    <a href="{{ download_url }}" class="btn">⬇️ Download</a>
     <div class="stats">
-      <span>👁️ {{ link.view_count }} views</span>
-      <span>⬇️ {{ link.download_count }}/{{ link.max_downloads }} downloads</span>
-    </div>
-    
-    {% if link.expires_at %}
-    <div class="warning">
-      ⏰ This link expires: {{ link.expires_at|date:"M d, Y H:i" }}
-    </div>
-    {% endif %}
-    
-    <div class="footer">
-      Shared via DropVault 🔒
+      👁️ {{ link.view_count }} views • ⬇️ {{ link.download_count }}/{{ link.max_downloads }} downloads
     </div>
   </div>
 </body>
