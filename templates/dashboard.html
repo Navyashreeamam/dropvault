@@ -8,12 +8,12 @@
     ul { list-style-type: none; padding: 0; }
     li { padding: 10px 0; border-bottom: 1px solid #eee; }
     button { margin: 3px 2px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
-    .file-row { display: flex; align-items: center; gap: 8px; }
+    .file-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .share-group { display: flex; flex-direction: column; gap: 4px; }
-    .email-form { display: none; margin-top: 6px; font-size: 12px; }
-    .email-form input,
-    .email-form select { padding: 2px; font-size: 12px; }
-    .link-input { display: none; margin-top: 6px; font-size: 11px; width: 220px; padding: 2px; }
+    .email-form { display: none; margin-top: 6px; font-size: 12px; background: #f5f5f5; padding: 8px; border-radius: 4px; }
+    .email-form input { padding: 4px; font-size: 12px; width: 200px; }
+    .email-form textarea { padding: 4px; font-size: 12px; width: 200px; height: 40px; }
+    .link-input { display: none; margin-top: 6px; font-size: 11px; width: 280px; padding: 4px; }
     
     /* Tabs styling */
     .tabs { display: flex; gap: 10px; margin: 20px 0; }
@@ -62,6 +62,10 @@
     }
     .no-files { color: #888; font-style: italic; padding: 20px; text-align: center; }
     .loading { text-align: center; padding: 20px; color: #666; }
+    
+    /* Success/Error messages */
+    .success-msg { color: #2e7d32; background: #e8f5e9; padding: 8px; border-radius: 4px; margin: 5px 0; }
+    .error-msg { color: #d32f2f; background: #ffebee; padding: 8px; border-radius: 4px; margin: 5px 0; }
   </style>
 </head>
 <body>
@@ -98,7 +102,7 @@
   </div>
 </div>
 
-<!-- ✅ Shared by You -->
+<!-- Shared by You -->
 <div style="margin-top: 30px;">
   <h3>🔗 Shared by You ({{ shared_links|length }})</h3>
   {% if shared_links %}
@@ -107,7 +111,7 @@
         <li style="padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px;">
           📄 <strong>{{ link.file.original_name }}</strong>
           {% if link.slug %}
-            <br><small>🔗 Public link: <code>/s/{{ link.slug }}/</code></small>
+            <br><small>🔗 Public link: <a href="/s/{{ link.slug }}/" target="_blank">/s/{{ link.slug }}/</a></small>
           {% else %}
             <br><small>📧 Email link (token: {{ link.token|truncatechars:12 }})</small>
           {% endif %}
@@ -127,9 +131,14 @@
 </div>
 
 <script>
+// ═══════════════════════════════════════════════════════════
+// 🔧 CSRF TOKEN
+// ═══════════════════════════════════════════════════════════
 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-// Upload file
+// ═══════════════════════════════════════════════════════════
+// 📤 UPLOAD FILE
+// ═══════════════════════════════════════════════════════════
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
@@ -152,7 +161,9 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   }
 });
 
-// Load files (AJAX)
+// ═══════════════════════════════════════════════════════════
+// 📂 LOAD FILES
+// ═══════════════════════════════════════════════════════════
 async function loadFiles() {
   try {
     const res = await fetch('/api/list/', {
@@ -168,47 +179,77 @@ async function loadFiles() {
     if (files.length === 0) {
       document.getElementById('fileList').innerHTML = '<li>📁 No files uploaded yet.</li>';
     } else {
-      document.getElementById('fileList').innerHTML = files.map(f => 
-          `<li>
-            <div class="file-row">
-              <strong>${f.original_name || f.filename}</strong> (${Math.round(f.size / 1024)} KB)
-              <button onclick="deleteFile(${f.id})">🗑️ Delete</button>
-              <div class="share-group">
-                <button onclick="toggleEmailForm(${f.id})">📧 Share</button>
-                <form id="email-form-${f.id}" class="email-form" onsubmit="return submitEmailShare(${f.id}, event)">
-                  <input type="email" name="email" placeholder="Email" required>
-                  <select name="role">
-                    <option value="viewer">View</option>
-                    <option value="editor">Edit</option>
-                  </select>
-                  <button type="submit">Send</button>
-                  <button type="button" onclick="toggleEmailForm(${f.id})">✕</button>
-                </form>
-                <button onclick="copyLink(${f.id})">🔗 Copy Link</button>
-                <input type="text" id="link-input-${f.id}" class="link-input" readonly>
+      document.getElementById('fileList').innerHTML = files.map(f => `
+        <li>
+          <div class="file-row">
+            <strong>${escapeHtml(f.original_name || f.filename)}</strong> 
+            (${formatFileSize(f.size)})
+            <button onclick="deleteFile(${f.id})">🗑️ Delete</button>
+            <div class="share-group">
+              <button onclick="toggleEmailForm(${f.id})">📧 Share via Email</button>
+              <div id="email-form-${f.id}" class="email-form">
+                <div style="margin-bottom: 6px;">
+                  <label>Recipient Email:</label><br>
+                  <input type="email" id="email-input-${f.id}" placeholder="recipient@example.com" required>
+                </div>
+                <div style="margin-bottom: 6px;">
+                  <label>Message (optional):</label><br>
+                  <textarea id="message-input-${f.id}" placeholder="Check out this file..."></textarea>
+                </div>
+                <button onclick="submitEmailShare(${f.id})">📤 Send</button>
+                <button onclick="toggleEmailForm(${f.id})">✕ Cancel</button>
+                <div id="email-status-${f.id}"></div>
               </div>
+              <button onclick="copyLink(${f.id})">🔗 Copy Link</button>
+              <input type="text" id="link-input-${f.id}" class="link-input" readonly onclick="this.select()">
             </div>
-          </li>`
-      ).join('');
+          </div>
+        </li>
+      `).join('');
     }
   } catch (err) {
     document.getElementById('fileList').innerHTML = `<li>❌ Error: ${err.message}</li>`;
   }
 }
 
-// Toggle email form
+// ═══════════════════════════════════════════════════════════
+// 📧 TOGGLE EMAIL FORM
+// ═══════════════════════════════════════════════════════════
 function toggleEmailForm(fileId) {
   const form = document.getElementById(`email-form-${fileId}`);
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'none' || form.style.display === '') {
+    form.style.display = 'block';
+  } else {
+    form.style.display = 'none';
+  }
 }
 
-// Submit email share
-async function submitEmailShare(fileId, e) {
-  e.preventDefault();
-  const form = e.target;
-  const email = form.email.value.trim();
-  const role = form.role.value;
-
+// ═══════════════════════════════════════════════════════════
+// 📧 SUBMIT EMAIL SHARE (FIXED!)
+// ═══════════════════════════════════════════════════════════
+async function submitEmailShare(fileId) {
+  const emailInput = document.getElementById(`email-input-${fileId}`);
+  const messageInput = document.getElementById(`message-input-${fileId}`);
+  const statusDiv = document.getElementById(`email-status-${fileId}`);
+  
+  const recipientEmail = emailInput.value.trim();
+  const message = messageInput.value.trim();
+  
+  // Validate email
+  if (!recipientEmail) {
+    statusDiv.innerHTML = '<p class="error-msg">❌ Please enter an email address</p>';
+    return;
+  }
+  
+  // Simple email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(recipientEmail)) {
+    statusDiv.innerHTML = '<p class="error-msg">❌ Please enter a valid email address</p>';
+    return;
+  }
+  
+  statusDiv.innerHTML = '<p>⏳ Sending...</p>';
+  
   try {
     const res = await fetch(`/files/share/${fileId}/email/`, {
       method: 'POST',
@@ -216,57 +257,95 @@ async function submitEmailShare(fileId, e) {
         'X-CSRFToken': csrfToken,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ email, role })
+      body: JSON.stringify({ 
+        recipient_email: recipientEmail,  // ✅ FIXED: Use correct field name
+        message: message 
+      })
     });
 
     const data = await res.json();
+    console.log('Share response:', data);
+    
     if (res.ok) {
-      alert('✅ Shared successfully!');
-      toggleEmailForm(fileId);
-      form.reset();
+      if (data.email_sent) {
+        statusDiv.innerHTML = `<p class="success-msg">✅ Email sent to ${recipientEmail}!</p>`;
+      } else {
+        statusDiv.innerHTML = `<p class="success-msg">✅ Link created! ${data.warning || ''}<br>Share URL: <a href="${data.share_url}" target="_blank">${data.share_url}</a></p>`;
+      }
+      emailInput.value = '';
+      messageInput.value = '';
+      // Hide form after 3 seconds
+      setTimeout(() => {
+        toggleEmailForm(fileId);
+        statusDiv.innerHTML = '';
+      }, 5000);
     } else {
-      alert('❌ Share failed: ' + (data.error || 'Unknown error'));
+      statusDiv.innerHTML = `<p class="error-msg">❌ ${data.error || 'Failed to share'}</p>`;
     }
   } catch (err) {
     console.error('Email share error:', err);
-    alert('❌ Share error: ' + err.message);
+    statusDiv.innerHTML = `<p class="error-msg">❌ Network error: ${err.message}</p>`;
   }
-  return false;
 }
 
-// Copy public link
+// ═══════════════════════════════════════════════════════════
+// 🔗 COPY LINK (FIXED!)
+// ═══════════════════════════════════════════════════════════
 async function copyLink(fileId) {
   const btn = event.target;
+  const originalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '⏳';
+  btn.textContent = '⏳ Creating...';
 
   try {
     const res = await fetch(`/files/share/${fileId}/`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': csrfToken }
+      headers: { 
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { link } = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    
+    const data = await res.json();
+    console.log('Share link response:', data);
+    
+    // ✅ FIXED: Handle different response formats
+    const shareUrl = data.share_url || data.link || (data.slug ? `${window.location.origin}/s/${data.slug}/` : null);
+    
+    if (!shareUrl) {
+      throw new Error('No share URL in response');
+    }
 
     const input = document.getElementById(`link-input-${fileId}`);
-    input.value = link;
+    input.value = shareUrl;
     input.style.display = 'block';
     input.select();
-    await navigator.clipboard.writeText(link);
-    btn.textContent = '✅';
+    
+    await navigator.clipboard.writeText(shareUrl);
+    btn.textContent = '✅ Copied!';
+    
+    alert(`✅ Link copied to clipboard!\n${shareUrl}`);
+    
   } catch (e) {
     console.error('Copy link failed:', e);
-    btn.textContent = '❌';
-    alert('❌ Failed to generate link. Check network/console.');
+    btn.textContent = '❌ Failed';
+    alert('❌ Failed to generate link: ' + e.message);
   } finally {
     setTimeout(() => {
       btn.disabled = false;
-      btn.textContent = '🔗 Copy Link';
-    }, 1500);
+      btn.textContent = originalText;
+    }, 2000);
   }
 }
 
-// Delete file
+// ═══════════════════════════════════════════════════════════
+// 🗑️ DELETE FILE
+// ═══════════════════════════════════════════════════════════
 async function deleteFile(id) {
   if (!confirm('Move this file to trash?')) return;
   try {
@@ -278,7 +357,7 @@ async function deleteFile(id) {
     if (res.ok) {
       alert('✅ File moved to trash');
       loadFiles();
-      updateTrashCount(); // Update trash count
+      updateTrashCount();
     } else {
       alert('❌ Delete failed: ' + (data.error || 'Permission denied'));
     }
@@ -288,7 +367,7 @@ async function deleteFile(id) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🗑️ FIXED: Load trash files - API returns ARRAY directly
+// 🗑️ LOAD TRASH FILES
 // ═══════════════════════════════════════════════════════════
 async function loadTrashFiles() {
   console.log('🗑️ Loading trash files...');
@@ -311,22 +390,13 @@ async function loadTrashFiles() {
       credentials: 'same-origin'
     });
     
-    console.log('🗑️ Response status:', response.status);
-    
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await response.json();
-    console.log('🗑️ Trash data:', data);
-    
-    // ✅ FIX: API returns array directly, NOT {files: [...]}
-    // Check if data is an array
     const files = Array.isArray(data) ? data : (data.files || []);
     
-    console.log('🗑️ Files to display:', files.length);
-    
-    // Update trash count in tab
     document.getElementById('trash-count').textContent = files.length;
     
     if (files.length === 0) {
@@ -334,36 +404,34 @@ async function loadTrashFiles() {
       return;
     }
     
-    // Render trash items
     trashList.innerHTML = files.map(file => {
-      const deletedDate = new Date(file.deleted_at).toLocaleDateString('en-US', {
+      const deletedDate = file.deleted_at ? new Date(file.deleted_at).toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
-      });
+      }) : 'Unknown';
       
-      const daysClass = file.days_remaining <= 7 ? 'warning' : '';
+      const daysRemaining = file.days_remaining || 30;
+      const daysClass = daysRemaining <= 7 ? 'warning' : '';
       
       return `
         <div class="file-item">
           <div class="file-info">
-            <span class="file-name">📄 ${escapeHtml(file.filename)}</span>
+            <span class="file-name">📄 ${escapeHtml(file.filename || file.original_name)}</span>
             <span class="file-size">${formatFileSize(file.size)}</span>
             <span class="delete-info">Deleted: ${deletedDate}</span>
             <span class="days-remaining ${daysClass}">
-              ⏰ ${file.days_remaining} days until permanent deletion
+              ⏰ ${daysRemaining} days until permanent deletion
             </span>
           </div>
-          <button class="restore-btn" onclick="restoreFile(${file.id}, '${escapeHtml(file.filename)}')">
+          <button class="restore-btn" onclick="restoreFile(${file.id}, '${escapeHtml(file.filename || file.original_name)}')">
             ♻️ Restore
           </button>
         </div>
       `;
     }).join('');
-    
-    console.log('✅ Trash rendered successfully');
     
   } catch (error) {
     console.error('❌ Error loading trash:', error);
@@ -372,12 +440,10 @@ async function loadTrashFiles() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ♻️ FIXED: Restore file - check for correct response format
+// ♻️ RESTORE FILE
 // ═══════════════════════════════════════════════════════════
 async function restoreFile(fileId, fileName) {
   if (!confirm(`Restore "${fileName}" from trash?`)) return;
-  
-  console.log('♻️ Restoring file:', fileId);
   
   try {
     const response = await fetch(`/api/restore/${fileId}/`, {
@@ -389,16 +455,12 @@ async function restoreFile(fileId, fileName) {
       credentials: 'same-origin'
     });
     
-    console.log('♻️ Restore response status:', response.status);
-    
     const data = await response.json();
-    console.log('♻️ Restore response:', data);
     
-    // ✅ FIX: Check for 'status' === 'success' (what API returns)
     if (response.ok && (data.status === 'success' || data.success)) {
       alert('✅ File restored successfully!');
-      loadTrashFiles();  // Reload trash
-      loadFiles();       // Reload main files
+      loadTrashFiles();
+      loadFiles();
     } else {
       alert('❌ ' + (data.error || data.message || 'Failed to restore file'));
     }
@@ -408,7 +470,9 @@ async function restoreFile(fileId, fileName) {
   }
 }
 
-// Update trash count without showing the full list
+// ═══════════════════════════════════════════════════════════
+// 🔧 UPDATE TRASH COUNT
+// ═══════════════════════════════════════════════════════════
 async function updateTrashCount() {
   try {
     const response = await fetch('/api/trash/', {
@@ -422,23 +486,27 @@ async function updateTrashCount() {
   }
 }
 
-// Helper function for file size formatting
+// ═══════════════════════════════════════════════════════════
+// 🔧 HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════
 function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
+  if (!bytes || bytes === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Helper function to escape HTML
 function escapeHtml(text) {
+  if (!text) return '';
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
-// Tab switching functionality
+// ═══════════════════════════════════════════════════════════
+// 📑 TAB SWITCHING
+// ═══════════════════════════════════════════════════════════
 document.getElementById('files-tab').addEventListener('click', () => {
   document.getElementById('files-container').style.display = 'block';
   document.getElementById('trash-container').style.display = 'none';
@@ -455,11 +523,13 @@ document.getElementById('trash-tab').addEventListener('click', () => {
   loadTrashFiles();
 });
 
-// Initial load
+// ═══════════════════════════════════════════════════════════
+// 🚀 INITIAL LOAD
+// ═══════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
   console.log('🚀 Dashboard loaded');
   loadFiles();
-  updateTrashCount(); // Get initial trash count
+  updateTrashCount();
 });
 </script>
 </body>

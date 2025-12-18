@@ -272,6 +272,11 @@ def share_via_email(request, file_id):
     """
     log_info(f"📧 SHARE VIA EMAIL request for file {file_id} from user {request.user.id}")
     
+    # Debug: Log raw request data
+    log_info(f"📧 Content-Type: {request.content_type}")
+    log_info(f"📧 Body: {request.body[:500] if request.body else 'EMPTY'}")
+    log_info(f"📧 POST data: {dict(request.POST)}")
+    
     # Get file
     try:
         file_obj = File.objects.get(id=file_id, user=request.user)
@@ -280,86 +285,41 @@ def share_via_email(request, file_id):
     except File.DoesNotExist:
         return JsonResponse({'error': 'File not found'}, status=404)
     
-    # Parse request body
-    try:
-        data = json.loads(request.body) if request.body else {}
-    except json.JSONDecodeError:
-        data = {}
+    # Parse request body - try multiple methods
+    recipient_email = ''
+    message = ''
     
-    recipient_email = data.get('recipient_email', '').strip()
-    message = data.get('message', '')
+    # Method 1: JSON body
+    if request.body:
+        try:
+            data = json.loads(request.body)
+            recipient_email = data.get('recipient_email', '').strip()
+            message = data.get('message', '')
+            log_info(f"📧 Parsed from JSON: email={recipient_email}")
+        except json.JSONDecodeError:
+            log_info("📧 Body is not JSON")
     
-    # Also check POST data
+    # Method 2: POST form data
     if not recipient_email:
         recipient_email = request.POST.get('recipient_email', '').strip()
         message = request.POST.get('message', '')
+        log_info(f"📧 Parsed from POST: email={recipient_email}")
+    
+    # Method 3: Form data with different field names
+    if not recipient_email:
+        recipient_email = request.POST.get('email', '').strip()
+        log_info(f"📧 Parsed from POST (email field): email={recipient_email}")
+    
+    # Method 4: Query params (just in case)
+    if not recipient_email:
+        recipient_email = request.GET.get('recipient_email', '').strip()
+        log_info(f"📧 Parsed from GET: email={recipient_email}")
     
     if not recipient_email:
+        log_error("📧 No recipient email found in request")
         return JsonResponse({'error': 'Recipient email is required'}, status=400)
     
-    # Validate email format
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_pattern, recipient_email):
-        return JsonResponse({'error': 'Invalid email format'}, status=400)
-    
-    try:
-        # Create or get share link
-        share_link, created = SharedLink.objects.get_or_create(
-            file=file_obj,
-            owner=request.user,
-            is_active=True,
-            defaults={
-                'slug': generate_unique_slug(),
-                'token': secrets.token_urlsafe(48),
-                'max_downloads': 5,
-            }
-        )
-        
-        # Build share URL
-        site_url = getattr(settings, 'SITE_URL', 'https://dropvault-2.onrender.com')
-        share_url = f"{site_url}/s/{share_link.slug}/"
-        
-        # Prepare email content
-        subject = f"{file_obj.original_name} shared with you - DropVault"
-        
-        text_content = f"""Hi,
-
-{request.user.email} shared '{file_obj.original_name}' with you.
-
-"""
-        if message:
-            text_content += f"Message: {message}\n\n"
-        
-        text_content += f"""Access link: {share_url}
-
-This link expires 24 hours after first access.
-Max 5 downloads allowed.
-
-- DropVault
-"""
-        
-        # Send email
-        email_sent = send_share_email(recipient_email, subject, text_content)
-        
-        # Return response
-        response_data = {
-            'status': 'success',
-            'message': f'Share link created for {recipient_email}',
-            'share_url': share_url,
-            'email_sent': email_sent
-        }
-        
-        if not email_sent:
-            response_data['warning'] = 'Email could not be sent. Please share the link manually.'
-        
-        log_info(f"✅ Share via email completed for file {file_id}, email_sent={email_sent}")
-        return JsonResponse(response_data)
-        
-    except Exception as e:
-        log_error(f"❌ Share via email failed: {str(e)}")
-        import traceback
-        log_error(traceback.format_exc())
-        return JsonResponse({'error': str(e)}, status=500)
+    # Rest of the function...
 
 
 # ═══════════════════════════════════════════════════════════
