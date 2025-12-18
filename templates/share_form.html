@@ -1,9 +1,0 @@
-<form method="post" action="{% url 'share_file' file.id %}">
-  {% csrf_token %}
-  <input type="email" name="email" placeholder="User email" required>
-  <select name="role">
-    <option value="viewer">Viewer</option>
-    <option value="editor">Editor</option>
-  </select>
-  <button type="submit">Share</button>
-</form>

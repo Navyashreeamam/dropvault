@@ -9,6 +9,8 @@ urlpatterns = [
     path('delete/<int:file_id>/', views.delete_file, name='delete_file'),
     path('trash/', views.trash_list, name='trash_list'),
     path('restore/<int:file_id>/', views.restore_file, name='restore_file'),
+    path('download/<int:file_id>/', views.download_file, name='download_file'),
+    path('permanent-delete/<int:file_id>/', views.permanent_delete, name='permanent_delete'),
     
     # Debug endpoint
     path('debug/files/', views.debug_files, name='debug_files'),

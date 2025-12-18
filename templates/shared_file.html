@@ -1,60 +1,97 @@
-<!-- templates/files/shared_file.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shared: {{ file.original_name }}</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
-        .card { border: 1px solid #e1e5e9; border-radius: 8px; padding: 24px; background: #f8fafc; }
-        .header { text-align: center; margin-bottom: 24px; }
-        .btn { display: inline-block; background: #3b82f6; color: white; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 500; }
-        .btn:hover { background: #2563eb; }
-        .meta { background: #fff; padding: 16px; border-radius: 6px; margin: 16px 0; }
-        .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; font-size: 0.875rem; }
-    </style>
+  <title>{{ file.original_name }} - DropVault Share</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 450px;
+      width: 100%;
+      padding: 40px;
+      text-align: center;
+    }
+    .icon { font-size: 4em; margin-bottom: 20px; }
+    h1 { font-size: 1.5em; color: #333; margin-bottom: 10px; word-break: break-word; }
+    .meta { color: #666; margin-bottom: 25px; font-size: 0.95em; }
+    .meta span { display: inline-block; margin: 0 10px; }
+    .download-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 15px 40px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.1em;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .download-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+    .stats {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+      font-size: 0.85em;
+      color: #888;
+    }
+    .stats span { margin: 0 8px; }
+    .warning {
+      margin-top: 20px;
+      padding: 12px;
+      background: #fff3cd;
+      border-radius: 8px;
+      color: #856404;
+      font-size: 0.85em;
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 0.8em;
+      color: #aaa;
+    }
+  </style>
 </head>
 <body>
-    <div class="card">
-        <div class="header">
-            <h1>📁 {{ file.original_name }}</h1>
-            <p>Shared by <strong>{{ link.owner.email }}</strong></p>
-        </div>
-
-        <div class="meta">
-            <p><strong>Size:</strong> {{ file.size|filesizeformat }}</p>
-            <p><strong>Expires:</strong> 
-                {% if link.expires_at %}
-                    {{ link.expires_at|date:"j M Y, P" }}
-                {% else %}
-                    <em>After first access (24 hours)</em>
-                {% endif %}
-            </p>
-            <p><strong>Views:</strong> {{ link.view_count }} &nbsp;|&nbsp; 
-               <strong>Downloads:</strong> {{ link.download_count }} / {{ link.max_downloads }}</p>
-        </div>
-
-        {% if link.download_count < link.max_downloads and not link.is_expired %}
-            <p style="text-align:center;">
-                <a href="{{ download_url }}" class="btn" download="{{ file.original_name }}">
-                    ⬇️ Download File
-                </a>
-            </p>
-        {% else %}
-            <div class="warning">
-                {% if link.is_expired %}
-                    🔒 This link has expired.
-                {% elif link.download_count >= link.max_downloads %}
-                    🚫 Download limit reached ({{ link.max_downloads }}).
-                {% endif %}
-            </div>
-        {% endif %}
-
-        <div class="warning">
-            <strong>Note:</strong> This file is end-to-end encrypted. 
-            Your browser will decrypt it after download using keys embedded in the file metadata.
-        </div>
+  <div class="card">
+    <div class="icon">📄</div>
+    <h1>{{ file.original_name }}</h1>
+    <div class="meta">
+      <span>📦 {{ file.size|filesizeformat }}</span>
+      <span>📅 {{ file.uploaded_at|date:"M d, Y" }}</span>
     </div>
+    
+    <a href="{{ download_url }}" class="download-btn">
+      ⬇️ Download File
+    </a>
+    
+    <div class="stats">
+      <span>👁️ {{ link.view_count }} views</span>
+      <span>⬇️ {{ link.download_count }}/{{ link.max_downloads }} downloads</span>
+    </div>
+    
+    {% if link.expires_at %}
+    <div class="warning">
+      ⏰ This link expires: {{ link.expires_at|date:"M d, Y H:i" }}
+    </div>
+    {% endif %}
+    
+    <div class="footer">
+      Shared via DropVault 🔒
+    </div>
+  </div>
 </body>
 </html>
