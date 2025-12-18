@@ -10,7 +10,7 @@ urlpatterns = [
     path('trash/', views.trash_list, name='trash_list'),
     path('restore/<int:file_id>/', views.restore_file, name='restore_file'),
     
-    # Debug endpoint  
+    # Debug
     path('debug/files/', views.debug_files, name='debug_files'),
     
     # Sharing
