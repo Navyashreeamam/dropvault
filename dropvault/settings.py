@@ -326,16 +326,16 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880
 FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 CACHE (Use local memory, no Redis needed)
+# 🔴 CACHE (Use local memory - works without database table)
 # ═══════════════════════════════════════════════════════════
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-        'LOCATION': 'django_cache_table',
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dropvault-cache',
     }
 }
 
-# Ratelimit settings
+# Ratelimit settings - use the cache
 RATELIMIT_USE_CACHE = 'default'
 SILENCED_SYSTEM_CHECKS = ['django_ratelimit.E003', 'django_ratelimit.W001']
 
