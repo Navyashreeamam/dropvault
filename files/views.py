@@ -490,3 +490,84 @@ def dashboard(request):
         'files': files,
         'shared_links': shared_links
     })
+
+# ═══════════════════════════════════════════════════════════
+# 🔥 PERMANENT DELETE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["POST", "DELETE", "OPTIONS"])
+def permanent_delete(request, file_id):
+    """Permanently delete a file"""
+    
+    if request.method == "OPTIONS":
+        return JsonResponse({'status': 'ok'})
+    
+    log_info(f"🔥 PERMANENT DELETE - File: {file_id}")
+    
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Not authenticated', 'login_required': True}, status=401)
+    
+    try:
+        file_obj = File.objects.get(id=file_id, user=request.user)
+        file_name = file_obj.original_name
+        
+        # Delete physical file
+        try:
+            if file_obj.file:
+                file_obj.file.delete(save=False)
+        except Exception as e:
+            log_error(f"Could not delete physical file: {e}")
+        
+        # Delete trash entry
+        Trash.objects.filter(file=file_obj).delete()
+        
+        # Delete file record
+        file_obj.delete()
+        
+        log_info(f"🔥 ✅ Permanently deleted: {file_name}")
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': f'File permanently deleted'
+        })
+        
+    except File.DoesNotExist:
+        return JsonResponse({'error': 'File not found'}, status=404)
+    except Exception as e:
+        log_error(f"🔥 ❌ Error: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+# ═══════════════════════════════════════════════════════════
+# 📥 DOWNLOAD FILE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["GET"])
+def download_file(request, file_id):
+    """Download a file"""
+    
+    log_info(f"📥 DOWNLOAD - File: {file_id}")
+    
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Not authenticated', 'login_required': True}, status=401)
+    
+    try:
+        file_obj = File.objects.get(id=file_id, user=request.user, deleted=False)
+        
+        if not file_obj.file:
+            return JsonResponse({'error': 'File not found on server'}, status=404)
+        
+        response = FileResponse(
+            file_obj.file.open('rb'),
+            as_attachment=True,
+            filename=file_obj.original_name
+        )
+        
+        log_info(f"📥 ✅ Download started: {file_obj.original_name}")
+        return response
+        
+    except File.DoesNotExist:
+        return JsonResponse({'error': 'File not found'}, status=404)
+    except Exception as e:
+        log_error(f"📥 ❌ Error: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
