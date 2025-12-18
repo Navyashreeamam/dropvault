@@ -40,7 +40,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-this-i
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
 
 # ALLOWED_HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.railway.app').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.railway.app,.onrender.com').split(',')
 ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS if h.strip()]
 
 print(f"DEBUG: {DEBUG}")
@@ -72,39 +72,36 @@ if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
 
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ DATABASE CONFIGURATION (Works for both Docker & Local)
+# 🗄️ DATABASE CONFIGURATION (Works for Docker, Local & Render)
 # ═══════════════════════════════════════════════════════════
-# Auto-detect if running in Docker or locally
 import socket
 
 def is_running_in_docker():
     """Check if we're running inside a Docker container"""
-    # Method 1: Check for .dockerenv file
     if os.path.exists('/.dockerenv'):
         return True
-    
-    # Method 2: Check hostname (Docker containers have unique hostnames)
     try:
         hostname = socket.gethostname()
         if len(hostname) == 12 and all(c in '0123456789abcdef' for c in hostname):
             return True
     except:
         pass
-    
-    # Method 3: Check for Docker-specific environment variable
     if os.environ.get('DOCKER_CONTAINER'):
         return True
-    
     return False
 
-# Determine if we're in Docker
+# Determine environment
 IN_DOCKER = is_running_in_docker()
+IS_RENDER = os.environ.get('RENDER') is not None
 print(f"🐳 Running in Docker: {IN_DOCKER}")
+print(f"🌐 Running on Render: {IS_RENDER}")
 
-# Use DATABASE_URL if provided (Railway, Heroku, etc.)
-DATABASE_URL = os.environ.get('DATABASE_URL')
+# Get DATABASE_URL from environment
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
-if DATABASE_URL:
+# ✅ FIX: Check if DATABASE_URL is valid (not empty and starts with postgres)
+if DATABASE_URL and DATABASE_URL.startswith('postgres'):
+    print(f"✅ Using DATABASE_URL from environment")
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
@@ -112,9 +109,17 @@ if DATABASE_URL:
             conn_health_checks=True,
         )
     }
-    print("✅ Using DATABASE_URL from environment")
+elif IS_RENDER:
+    # On Render but no valid DATABASE_URL yet - use SQLite temporarily
+    print("⚠️ On Render but DATABASE_URL not set - using SQLite temporarily")
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 else:
-    # Determine the correct host based on environment
+    # Local or Docker environment
     if IN_DOCKER:
         DB_HOST = 'db'  # Docker service name
         print("🐳 Using Docker database host: db")
@@ -256,6 +261,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 SECURE_PROXY_SSL_HEADER = None
 USE_X_FORWARDED_HOST = False
 
+
 # ═══════════════════════════════════════════════════════════
 # 🌍 CORS CONFIGURATION
 # ═══════════════════════════════════════════════════════════
@@ -267,6 +273,22 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# ═══════════════════════════════════════════════════════════
+# 🔒 CSRF TRUSTED ORIGINS (Required for Render)
+# ═══════════════════════════════════════════════════════════
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://*.onrender.com",
+    "https://*.railway.app",
+]
+
+# Add Render URL if available
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+    
 
 # ═══════════════════════════════════════════════════════════
 # 🗂️ STATIC & MEDIA FILES

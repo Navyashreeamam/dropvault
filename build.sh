@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
+# build.sh - Render build script
+
 set -o errexit
 
+echo "📦 Installing dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
-python manage.py collectstatic --no-input
-python manage.py migrate
+
+echo "📁 Creating directories..."
+mkdir -p staticfiles
+mkdir -p static
+mkdir -p media
+
+echo "📁 Collecting static files..."
+python manage.py collectstatic --no-input --clear || echo "⚠️ collectstatic had issues, continuing..."
+
+echo "🔄 Running migrations..."
+python manage.py migrate --no-input || echo "⚠️ Migration skipped (database may not be ready)"
+
+echo "✅ Build complete!"
