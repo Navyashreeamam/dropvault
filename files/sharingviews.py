@@ -11,8 +11,8 @@ from django.utils import timezone
 from datetime import timedelta
 from .models import File, SharedLink
 
-# Import the working email function from accounts
-from accounts.utils import send_file_share_email
+# Import the email function
+from accounts.utils import send_file_share_email, get_resend_api_key
 
 
 def log_info(msg):
@@ -140,6 +140,17 @@ def share_via_email(request, file_id):
             log_error("📧 NOT AUTHENTICATED")
             return auth_error()
         
+        # Check if email service is configured
+        api_key = get_resend_api_key()
+        if not api_key:
+            log_error("📧 RESEND_API_KEY not configured!")
+            return json_response({
+                'status': 'error',
+                'error': 'Email service not configured',
+                'message': 'Please add RESEND_API_KEY to environment variables',
+                'email_sent': False
+            }, status=500)
+        
         file_obj = File.objects.get(id=file_id, user=request.user)
         
         if file_obj.deleted:
@@ -154,19 +165,22 @@ def share_via_email(request, file_id):
                 data = json.loads(request.body.decode('utf-8'))
                 recipient_email = data.get('recipient_email', '').strip()
                 message = data.get('message', '').strip()
-            except json.JSONDecodeError:
-                pass
+                log_info(f"📧 Parsed JSON body")
+            except json.JSONDecodeError as e:
+                log_error(f"📧 JSON decode error: {e}")
         
         # Fallback to POST data
         if not recipient_email:
             recipient_email = request.POST.get('recipient_email', '').strip()
             message = request.POST.get('message', '').strip()
+            log_info(f"📧 Using POST data")
         
         log_info(f"📧 Recipient: {recipient_email}")
-        log_info(f"📧 Message: {message[:50] if message else 'None'}...")
+        log_info(f"📧 Message: {message[:50] if message else 'None'}")
         
         if not recipient_email or '@' not in recipient_email:
             return json_response({
+                'status': 'error',
                 'error': 'Valid email address required'
             }, status=400)
         
@@ -186,8 +200,8 @@ def share_via_email(request, file_id):
         
         log_info(f"📧 Share URL: {share_url}")
         
-        # Send email using the working Resend function
-        email_sent = send_file_share_email(
+        # Send email using Resend
+        success, error_msg = send_file_share_email(
             to_email=recipient_email,
             from_user=request.user,
             file_name=file_obj.original_name,
@@ -195,9 +209,9 @@ def share_via_email(request, file_id):
             message=message if message else None
         )
         
-        log_info(f"📧 Email sent: {email_sent}")
+        log_info(f"📧 Email result: success={success}, error={error_msg}")
         
-        if email_sent:
+        if success:
             return json_response({
                 'status': 'success',
                 'share_url': share_url,
@@ -209,8 +223,8 @@ def share_via_email(request, file_id):
                 'status': 'partial',
                 'share_url': share_url,
                 'email_sent': False,
-                'message': 'Share link created but email could not be sent. You can copy the link manually.',
-                'warning': 'Email service may not be configured. Check RESEND_API_KEY.'
+                'error': error_msg,
+                'message': f'Share link created but email failed: {error_msg}'
             })
         
     except File.DoesNotExist:
@@ -300,3 +314,20 @@ def shared_file_view(request, slug, action=None):
 def download_shared_file(request, slug):
     """Direct download endpoint"""
     return shared_file_view(request, slug, action='download')
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔧 DEBUG ENDPOINT - Test email configuration
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def test_email_config(request):
+    """Test endpoint to check email configuration"""
+    api_key = get_resend_api_key()
+    
+    return json_response({
+        'resend_configured': bool(api_key),
+        'api_key_preview': f"{api_key[:15]}..." if api_key else None,
+        'api_key_valid_format': api_key.startswith('re_') if api_key else False,
+        'default_from_email': os.environ.get('DEFAULT_FROM_EMAIL', 'Not set'),
+        'render_hostname': os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'Not set'),
+    })
