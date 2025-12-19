@@ -13,15 +13,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ═══════════════════════════════════════════════════════════
 from dotenv import load_dotenv
 
-# Load .env file
 env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Debug: Verify .env is loaded
 if env_path.exists():
     print(f"✅ .env file found at: {env_path}")
-    print(f"   EMAIL_HOST_USER from .env: {os.getenv('EMAIL_HOST_USER', 'NOT FOUND')}")
-    print(f"   EMAIL_HOST_PASSWORD: {'SET' if os.getenv('EMAIL_HOST_PASSWORD') else 'NOT SET'}")
 else:
     print(f"⚠️  .env file NOT found at: {env_path}")
 
@@ -29,9 +25,11 @@ else:
 # 🔧 ENVIRONMENT DETECTION
 # ═══════════════════════════════════════════════════════════
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+IS_RENDER = os.environ.get('RENDER') is not None
 
 print(f"✅ Starting DropVault settings...")
 print(f"IS_RAILWAY: {IS_RAILWAY}")
+print(f"IS_RENDER: {IS_RENDER}")
 
 # ═══════════════════════════════════════════════════════════
 # 🔐 SECURITY SETTINGS
@@ -39,49 +37,78 @@ print(f"IS_RAILWAY: {IS_RAILWAY}")
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-this-in-production')
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
 
-# ALLOWED_HOSTS
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.railway.app,.onrender.com').split(',')
 ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS if h.strip()]
 
 print(f"DEBUG: {DEBUG}")
 print(f"ALLOWED_HOSTS: {ALLOWED_HOSTS}")
 
-# Railway HTTPS Configuration
-if IS_RAILWAY:
+# HTTPS Configuration for deployed environments
+if IS_RAILWAY or IS_RENDER:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     USE_X_FORWARDED_HOST = True
     USE_X_FORWARDED_PORT = True
 
 # ═══════════════════════════════════════════════════════════
-# 📧 EMAIL CONFIGURATION
+# 🌐 SITE URL CONFIGURATION (FIXED FOR RENDER!)
 # ═══════════════════════════════════════════════════════════
-# Resend API (works on Render free tier)
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
+
+# Determine SITE_URL based on environment
+if IS_RENDER and RENDER_EXTERNAL_HOSTNAME:
+    SITE_URL = f'https://{RENDER_EXTERNAL_HOSTNAME}'
+    print(f"✅ Using Render URL: {SITE_URL}")
+elif IS_RAILWAY:
+    railway_url = os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
+    if railway_url:
+        SITE_URL = railway_url if railway_url.startswith('http') else f'https://{railway_url}'
+    else:
+        SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+else:
+    SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
+print(f"✅ SITE_URL: {SITE_URL}")
+
+# ═══════════════════════════════════════════════════════════
+# 📧 EMAIL CONFIGURATION (FIXED FOR RENDER!)
+# ═══════════════════════════════════════════════════════════
+# Resend API - RECOMMENDED for Render (SMTP is blocked on free tier)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 
-# SMTP fallback
+# SMTP settings (for local development only)
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip()
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <onboarding@resend.dev>').strip()
 
+# From email - use Resend's default if using Resend
 if RESEND_API_KEY:
-    print(f"✅ Resend API configured")
-elif EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <onboarding@resend.dev>')
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # Resend uses API, not Django backend
+    print(f"✅ Email: Using Resend API")
+    print(f"   RESEND_API_KEY: {RESEND_API_KEY[:10]}..." if RESEND_API_KEY else "   RESEND_API_KEY: Not set")
+elif EMAIL_HOST_USER and EMAIL_HOST_PASSWORD and not IS_RENDER:
+    # Only use SMTP for local development (blocked on Render)
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    print(f"✅ SMTP Email configured")
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'DropVault <{EMAIL_HOST_USER}>')
+    print(f"✅ Email: Using SMTP (local dev)")
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-    print("⚠️ No email service configured - emails will only appear in logs")
+    DEFAULT_FROM_EMAIL = 'DropVault <noreply@dropvault.com>'
+    print("⚠️ Email: Console only (no email service configured)")
+    if IS_RENDER:
+        print("   💡 TIP: Set RESEND_API_KEY in Render environment variables")
+
+print(f"   DEFAULT_FROM_EMAIL: {DEFAULT_FROM_EMAIL}")
+
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ DATABASE CONFIGURATION (Works for Docker, Local & Render)
+# 🗄️ DATABASE CONFIGURATION
 # ═══════════════════════════════════════════════════════════
 import socket
 
 def is_running_in_docker():
-    """Check if we're running inside a Docker container"""
     if os.path.exists('/.dockerenv'):
         return True
     try:
@@ -94,16 +121,12 @@ def is_running_in_docker():
         return True
     return False
 
-# Determine environment
 IN_DOCKER = is_running_in_docker()
-IS_RENDER = os.environ.get('RENDER') is not None
 print(f"🐳 Running in Docker: {IN_DOCKER}")
 print(f"🌐 Running on Render: {IS_RENDER}")
 
-# Get DATABASE_URL from environment
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
-# ✅ FIX: Check if DATABASE_URL is valid (not empty and starts with postgres)
 if DATABASE_URL and DATABASE_URL.startswith('postgres'):
     print(f"✅ Using DATABASE_URL from environment")
     DATABASES = {
@@ -114,7 +137,6 @@ if DATABASE_URL and DATABASE_URL.startswith('postgres'):
         )
     }
 elif IS_RENDER:
-    # On Render but no valid DATABASE_URL yet - use SQLite temporarily
     print("⚠️ On Render but DATABASE_URL not set - using SQLite temporarily")
     DATABASES = {
         'default': {
@@ -123,12 +145,11 @@ elif IS_RENDER:
         }
     }
 else:
-    # Local or Docker environment
     if IN_DOCKER:
-        DB_HOST = 'db'  # Docker service name
+        DB_HOST = 'db'
         print("🐳 Using Docker database host: db")
     else:
-        DB_HOST = 'localhost'  # Local PostgreSQL
+        DB_HOST = 'localhost'
         print("💻 Using local database host: localhost")
     
     DATABASES = {
@@ -141,6 +162,7 @@ else:
             'PORT': os.environ.get('DB_PORT', '5432'),
         }
     }
+
     
 # ═══════════════════════════════════════════════════════════
 # 📦 INSTALLED APPS
@@ -177,14 +199,12 @@ AUTHENTICATION_BACKENDS = [
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
-# Updated settings for django-allauth 65+
 ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_EMAIL_VERIFICATION = 'optional'  # Changed to optional - we handle manually
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 ACCOUNT_LOGOUT_ON_GET = False
 
-# Rate limits
 ACCOUNT_RATE_LIMITS = {
     'login_failed': '5/5m',
 }
@@ -246,12 +266,16 @@ MIDDLEWARE = [
 # ═══════════════════════════════════════════════════════════
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_NAME = 'dropvault_sessionid'
-SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_COOKIE_AGE = 86400
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_SECURE = False  # Set True in production with HTTPS
+
+if IS_RENDER or IS_RAILWAY:
+    SESSION_COOKIE_SECURE = True
+else:
+    SESSION_COOKIE_SECURE = False
 
 # ═══════════════════════════════════════════════════════════
 # 🔧 REQUEST SIZE CONFIGURATION
