@@ -5,6 +5,7 @@ import os
 import hashlib
 import secrets
 import json
+import traceback
 from functools import wraps
 from django.utils import timezone
 from datetime import timedelta
@@ -21,13 +22,15 @@ from .models import File, Trash, FileLog, SharedLink
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔧 LOGGING
+# 🔧 LOGGING - Force flush to console
 # ═══════════════════════════════════════════════════════════
 def log_info(msg):
-    print(f"[INFO] {msg}", flush=True)
+    print(f"[INFO] {msg}", file=sys.stdout, flush=True)
+    sys.stdout.flush()
 
 def log_error(msg):
-    print(f"[ERROR] {msg}", flush=True)
+    print(f"[ERROR] {msg}", file=sys.stdout, flush=True)
+    sys.stdout.flush()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -45,22 +48,17 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 def validate_file(file):
-    """Validate file type and size"""
     if not file:
         return False, "No file provided"
-    
     ext = os.path.splitext(file.name)[1].lower()
     if ext and ext not in ALLOWED_EXTENSIONS:
         return False, f"File type '{ext}' not allowed"
-    
     if file.size > MAX_FILE_SIZE:
         return False, "File too large (max 50MB)"
-    
     return True, ""
 
 
 def get_file_hash(file):
-    """Calculate SHA-256 hash"""
     hasher = hashlib.sha256()
     file.seek(0)
     for chunk in file.chunks():
@@ -70,69 +68,86 @@ def get_file_hash(file):
 
 
 # ═══════════════════════════════════════════════════════════
-# 📤 UPLOAD FILE - FIXED FOR AUTHENTICATION
+# 🔐 JSON Response Helpers
+# ═══════════════════════════════════════════════════════════
+def json_response(data, status=200):
+    """Always return proper JSON with correct headers"""
+    response = JsonResponse(data, status=status)
+    response['Content-Type'] = 'application/json'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+def auth_error_response():
+    """Standard auth error response"""
+    return json_response({
+        'error': 'Authentication required',
+        'message': 'Please login to continue',
+        'login_required': True
+    }, status=401)
+
+
+# ═══════════════════════════════════════════════════════════
+# 📤 UPLOAD FILE
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
 def upload_file(request):
-    """Upload a file"""
+    """Upload a file - handles POST and OPTIONS"""
     
-    # Handle preflight OPTIONS request
+    # Handle OPTIONS preflight
     if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
+        response = json_response({'status': 'ok'})
         response["Access-Control-Allow-Origin"] = "*"
         response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
         response["Access-Control-Allow-Headers"] = "Content-Type, X-CSRFToken"
         return response
     
+    if request.method != "POST":
+        return json_response({'error': 'Method not allowed'}, status=405)
+    
     log_info("=" * 60)
-    log_info("📤 UPLOAD REQUEST")
+    log_info("📤 UPLOAD REQUEST RECEIVED")
+    log_info(f"📤 Method: {request.method}")
     log_info(f"📤 User: {request.user}")
-    log_info(f"📤 Authenticated: {request.user.is_authenticated}")
-    log_info(f"📤 Session: {request.session.session_key}")
-    log_info(f"📤 FILES: {list(request.FILES.keys())}")
+    log_info(f"📤 Is Authenticated: {request.user.is_authenticated}")
+    log_info(f"📤 Session Key: {request.session.session_key}")
+    log_info(f"📤 Content-Type: {request.content_type}")
+    log_info(f"📤 FILES keys: {list(request.FILES.keys())}")
     log_info("=" * 60)
-    
-    # Check authentication
-    if not request.user.is_authenticated:
-        log_error("📤 NOT AUTHENTICATED")
-        return JsonResponse({
-            'error': 'Please login to upload files',
-            'login_required': True,
-            'redirect': '/accounts/login/'
-        }, status=401)
-    
-    # Check for file in request
-    if 'file' not in request.FILES:
-        log_error("📤 No file in request")
-        return JsonResponse({
-            'error': 'No file provided',
-            'message': 'Please select a file to upload'
-        }, status=400)
-    
-    file = request.FILES['file']
-    log_info(f"📤 File received: {file.name} ({file.size} bytes)")
-    
-    # Validate file
-    valid, error_msg = validate_file(file)
-    if not valid:
-        log_error(f"📤 Validation failed: {error_msg}")
-        return JsonResponse({'error': error_msg}, status=400)
     
     try:
-        # Calculate hash for deduplication
+        # Check authentication
+        if not request.user.is_authenticated:
+            log_error("📤 ❌ NOT AUTHENTICATED!")
+            return auth_error_response()
+        
+        log_info(f"📤 ✅ User authenticated: {request.user.email}")
+        
+        # Check for file
+        if 'file' not in request.FILES:
+            log_error("📤 ❌ No file in request")
+            return json_response({
+                'error': 'No file provided',
+                'message': 'Please select a file to upload'
+            }, status=400)
+        
+        file = request.FILES['file']
+        log_info(f"📤 File: {file.name} ({file.size} bytes)")
+        
+        # Validate
+        valid, error_msg = validate_file(file)
+        if not valid:
+            log_error(f"📤 ❌ Validation failed: {error_msg}")
+            return json_response({'error': error_msg}, status=400)
+        
+        # Get hash
         file_hash = get_file_hash(file)
+        log_info(f"📤 Hash: {file_hash[:16]}...")
         
-        # Check for duplicate
-        existing = File.objects.filter(
-            user=request.user,
-            sha256=file_hash,
-            deleted=False
-        ).first()
-        
-        if existing:
-            log_info("📤 Duplicate file detected")
-            return JsonResponse({
+        # Check duplicate
+        if File.objects.filter(user=request.user, sha256=file_hash, deleted=False).exists():
+            log_info("📤 ⚠️ Duplicate detected")
+            return json_response({
                 'error': 'Duplicate file',
                 'message': 'You already uploaded this file'
             }, status=409)
@@ -148,19 +163,15 @@ def upload_file(request):
             deleted_at=None
         )
         
-        # Log action
+        log_info(f"📤 ✅ SUCCESS! File ID: {file_obj.id}")
+        
+        # Log action (ignore errors)
         try:
-            FileLog.objects.create(
-                user=request.user,
-                file=file_obj,
-                action='UPLOAD'
-            )
-        except Exception as e:
-            log_error(f"📤 Log error: {e}")
+            FileLog.objects.create(user=request.user, file=file_obj, action='UPLOAD')
+        except:
+            pass
         
-        log_info(f"📤 ✅ SUCCESS - ID: {file_obj.id}, Name: {file.name}")
-        
-        return JsonResponse({
+        return json_response({
             'status': 'success',
             'message': 'File uploaded successfully',
             'file': {
@@ -172,10 +183,9 @@ def upload_file(request):
         }, status=201)
         
     except Exception as e:
-        log_error(f"📤 ❌ ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({
+        log_error(f"📤 ❌ EXCEPTION: {str(e)}")
+        log_error(traceback.format_exc())
+        return json_response({
             'error': 'Upload failed',
             'message': str(e)
         }, status=500)
@@ -185,22 +195,18 @@ def upload_file(request):
 # 📂 LIST FILES
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["GET", "OPTIONS"])
 def list_files(request):
     """List user's active files"""
     
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        return json_response({'status': 'ok'})
     
-    log_info(f"📂 LIST - User: {request.user}, Auth: {request.user.is_authenticated}")
-    
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'error': 'Please login',
-            'login_required': True
-        }, status=401)
+    log_info(f"📂 LIST FILES - User: {request.user}, Auth: {request.user.is_authenticated}")
     
     try:
+        if not request.user.is_authenticated:
+            return auth_error_response()
+        
         files = File.objects.filter(
             user=request.user,
             deleted=False
@@ -215,7 +221,10 @@ def list_files(request):
         } for f in files]
         
         log_info(f"📂 Returning {len(file_list)} files")
-        return JsonResponse(file_list, safe=False)
+        
+        response = JsonResponse(file_list, safe=False)
+        response['Content-Type'] = 'application/json'
+        return response
         
     except Exception as e:
         log_error(f"📂 Error: {e}")
@@ -223,36 +232,30 @@ def list_files(request):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🗑️ DELETE FILE (Move to Trash)
+# 🗑️ DELETE FILE
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "DELETE", "OPTIONS"])
 def delete_file(request, file_id):
-    """Soft delete - move to trash"""
+    """Move file to trash"""
     
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        return json_response({'status': 'ok'})
     
     log_info(f"🗑️ DELETE - File: {file_id}, Auth: {request.user.is_authenticated}")
     
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'error': 'Please login',
-            'login_required': True
-        }, status=401)
-    
     try:
+        if not request.user.is_authenticated:
+            return auth_error_response()
+        
         file_obj = File.objects.get(id=file_id, user=request.user)
         
         if file_obj.deleted:
-            return JsonResponse({'error': 'Already in trash'}, status=400)
+            return json_response({'error': 'Already in trash'}, status=400)
         
-        # Soft delete
         file_obj.deleted = True
         file_obj.deleted_at = timezone.now()
         file_obj.save(update_fields=['deleted', 'deleted_at'])
         
-        # Create trash entry
         Trash.objects.update_or_create(
             file=file_obj,
             defaults={'deleted_at': timezone.now()}
@@ -260,38 +263,34 @@ def delete_file(request, file_id):
         
         log_info(f"🗑️ ✅ Moved to trash: {file_obj.original_name}")
         
-        return JsonResponse({
+        return json_response({
             'status': 'success',
             'message': 'File moved to trash'
         })
         
     except File.DoesNotExist:
-        return JsonResponse({'error': 'File not found'}, status=404)
+        return json_response({'error': 'File not found'}, status=404)
     except Exception as e:
         log_error(f"🗑️ Error: {e}")
-        return JsonResponse({'error': str(e)}, status=500)
+        return json_response({'error': str(e)}, status=500)
 
 
 # ═══════════════════════════════════════════════════════════
 # 🗑️ TRASH LIST
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["GET", "OPTIONS"])
 def trash_list(request):
     """List files in trash"""
     
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        return json_response({'status': 'ok'})
     
-    log_info(f"🗑️ TRASH LIST - Auth: {request.user.is_authenticated}")
-    
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'error': 'Please login',
-            'login_required': True
-        }, status=401)
+    log_info(f"🗑️ TRASH - Auth: {request.user.is_authenticated}")
     
     try:
+        if not request.user.is_authenticated:
+            return auth_error_response()
+        
         files = File.objects.filter(
             user=request.user,
             deleted=True
@@ -301,18 +300,19 @@ def trash_list(request):
         for f in files:
             deleted_at = f.deleted_at or timezone.now()
             days_remaining = max(0, 30 - (timezone.now() - deleted_at).days)
-            
             data.append({
                 'id': f.id,
                 'filename': f.original_name,
-                'original_name': f.original_name,
                 'size': f.size,
                 'deleted_at': deleted_at.isoformat(),
                 'days_remaining': days_remaining
             })
         
-        log_info(f"🗑️ Returning {len(data)} trash items")
-        return JsonResponse(data, safe=False)
+        log_info(f"🗑️ Returning {len(data)} items")
+        
+        response = JsonResponse(data, safe=False)
+        response['Content-Type'] = 'application/json'
+        return response
         
     except Exception as e:
         log_error(f"🗑️ Error: {e}")
@@ -323,64 +323,54 @@ def trash_list(request):
 # ♻️ RESTORE FILE
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
 def restore_file(request, file_id):
     """Restore file from trash"""
     
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        return json_response({'status': 'ok'})
     
-    log_info(f"♻️ RESTORE - File: {file_id}, Auth: {request.user.is_authenticated}")
-    
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'error': 'Please login',
-            'login_required': True
-        }, status=401)
+    log_info(f"♻️ RESTORE - File: {file_id}")
     
     try:
+        if not request.user.is_authenticated:
+            return auth_error_response()
+        
         file_obj = File.objects.get(id=file_id, user=request.user)
         
         if not file_obj.deleted:
-            return JsonResponse({'error': 'File is not in trash'}, status=400)
+            return json_response({'error': 'File not in trash'}, status=400)
         
-        # Restore
         file_obj.deleted = False
         file_obj.deleted_at = None
         file_obj.save(update_fields=['deleted', 'deleted_at'])
         
-        # Remove trash entry
         Trash.objects.filter(file=file_obj).delete()
         
         log_info(f"♻️ ✅ Restored: {file_obj.original_name}")
         
-        return JsonResponse({
+        return json_response({
             'status': 'success',
             'success': True,
             'message': 'File restored'
         })
         
     except File.DoesNotExist:
-        return JsonResponse({'error': 'File not found'}, status=404)
+        return json_response({'error': 'File not found'}, status=404)
     except Exception as e:
         log_error(f"♻️ Error: {e}")
-        return JsonResponse({'error': str(e)}, status=500)
+        return json_response({'error': str(e)}, status=500)
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔍 DEBUG FILES
+# 🔍 DEBUG
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["GET"])
 def debug_files(request):
-    """Debug endpoint"""
-    
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Not authenticated'}, status=401)
+        return json_response({'error': 'Not authenticated'}, status=401)
     
     files = File.objects.filter(user=request.user)
-    
-    return JsonResponse({
+    return json_response({
         'user': request.user.email,
         'total': files.count(),
         'active': files.filter(deleted=False).count(),
@@ -389,14 +379,13 @@ def debug_files(request):
 
 
 # ═══════════════════════════════════════════════════════════
-# 📊 DASHBOARD (HTML Page)
+# 📊 DASHBOARD
 # ═══════════════════════════════════════════════════════════
 @login_required
 def dashboard(request):
-    """Dashboard page"""
     log_info(f"📊 DASHBOARD - User: {request.user.email}")
     
-    # Force refresh CSRF token
+    # Ensure CSRF token is set
     get_token(request)
     
     files = File.objects.filter(user=request.user, deleted=False).order_by('-uploaded_at')
