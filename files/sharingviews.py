@@ -8,14 +8,16 @@ from django.http import JsonResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
 from django.utils import timezone
-from .models import File, SharedLink
 from datetime import timedelta
-from django.core.mail import send_mail
-from django.conf import settings
+from .models import File, SharedLink
+
+# Import the working email function from accounts
+from accounts.utils import send_file_share_email
 
 
 def log_info(msg):
     print(f"[INFO] {msg}", file=sys.stdout, flush=True)
+
 
 def log_error(msg):
     print(f"[ERROR] {msg}", file=sys.stdout, flush=True)
@@ -42,41 +44,27 @@ def generate_slug():
     return secrets.token_urlsafe(12)
 
 
-def send_share_email(to_email, subject, body):
-    log_info(f"📧 Sending to: {to_email}")
-    try:
-        resend_key = os.environ.get('RESEND_API_KEY', '').strip()
-        if resend_key:
-            try:
-                import resend
-                resend.api_key = resend_key
-                resend.Emails.send({
-                    "from": "DropVault <onboarding@resend.dev>",
-                    "to": [to_email],
-                    "subject": subject,
-                    "text": body,
-                })
-                log_info("📧 ✅ Sent via Resend")
-                return True
-            except Exception as e:
-                log_error(f"📧 Resend error: {e}")
-        
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@dropvault.app'),
-            recipient_list=[to_email],
-            fail_silently=False
-        )
-        log_info("📧 ✅ Sent via SMTP")
-        return True
-    except Exception as e:
-        log_error(f"📧 ❌ Failed: {e}")
-        return False
+def get_site_url(request):
+    """Get the correct site URL for share links"""
+    # First check environment variable
+    site_url = os.environ.get('SITE_URL', '').strip()
+    
+    # Auto-detect from Render
+    if not site_url or 'localhost' in site_url:
+        render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
+        if render_host:
+            site_url = f'https://{render_host}'
+    
+    # Fallback to request
+    if not site_url:
+        site_url = request.build_absolute_uri('/')[:-1]
+    
+    return site_url
 
 
 @csrf_exempt
 def create_share_link(request, file_id):
+    """Create a shareable link for a file"""
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
@@ -91,13 +79,13 @@ def create_share_link(request, file_id):
         if file_obj.deleted:
             return json_response({'error': 'Cannot share deleted file'}, status=400)
         
-        # Check existing
+        # Check existing active link
         existing = SharedLink.objects.filter(
             file=file_obj, owner=request.user, is_active=True
         ).first()
         
         if existing and not existing.is_expired():
-            site_url = os.environ.get('SITE_URL', request.build_absolute_uri('/')[:-1])
+            site_url = get_site_url(request)
             share_url = f"{site_url}/s/{existing.slug}/"
             return json_response({
                 'status': 'success',
@@ -106,7 +94,7 @@ def create_share_link(request, file_id):
                 'link': share_url
             })
         
-        # Create new
+        # Create new link
         slug = generate_slug()
         SharedLink.objects.create(
             file=file_obj,
@@ -117,7 +105,7 @@ def create_share_link(request, file_id):
             is_active=True
         )
         
-        site_url = os.environ.get('SITE_URL', request.build_absolute_uri('/')[:-1])
+        site_url = get_site_url(request)
         share_url = f"{site_url}/s/{slug}/"
         
         log_info(f"🔗 ✅ Created: {share_url}")
@@ -138,6 +126,7 @@ def create_share_link(request, file_id):
 
 @csrf_exempt
 def share_via_email(request, file_id):
+    """Share a file via email"""
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
@@ -156,7 +145,7 @@ def share_via_email(request, file_id):
         if file_obj.deleted:
             return json_response({'error': 'Cannot share deleted file'}, status=400)
         
-        # Parse body
+        # Parse request body
         recipient_email = ''
         message = ''
         
@@ -165,21 +154,23 @@ def share_via_email(request, file_id):
                 data = json.loads(request.body.decode('utf-8'))
                 recipient_email = data.get('recipient_email', '').strip()
                 message = data.get('message', '').strip()
-            except:
+            except json.JSONDecodeError:
                 pass
         
+        # Fallback to POST data
         if not recipient_email:
             recipient_email = request.POST.get('recipient_email', '').strip()
             message = request.POST.get('message', '').strip()
         
         log_info(f"📧 Recipient: {recipient_email}")
+        log_info(f"📧 Message: {message[:50] if message else 'None'}...")
         
         if not recipient_email or '@' not in recipient_email:
             return json_response({
-                'error': 'Valid email required'
+                'error': 'Valid email address required'
             }, status=400)
         
-        # Create link
+        # Create share link
         slug = generate_slug()
         SharedLink.objects.create(
             file=file_obj,
@@ -190,34 +181,37 @@ def share_via_email(request, file_id):
             is_active=True
         )
         
-        site_url = os.environ.get('SITE_URL', request.build_absolute_uri('/')[:-1])
+        site_url = get_site_url(request)
         share_url = f"{site_url}/s/{slug}/"
         
-        # Send email
-        subject = f"📎 {file_obj.original_name} - Shared via DropVault"
-        body = f"""Hello,
-
-{request.user.email} shared a file with you.
-
-📄 File: {file_obj.original_name}
-🔗 Download: {share_url}
-
-"""
-        if message:
-            body += f"Message: {message}\n\n"
+        log_info(f"📧 Share URL: {share_url}")
         
-        body += "- DropVault"
+        # Send email using the working Resend function
+        email_sent = send_file_share_email(
+            to_email=recipient_email,
+            from_user=request.user,
+            file_name=file_obj.original_name,
+            share_url=share_url,
+            message=message if message else None
+        )
         
-        email_sent = send_share_email(recipient_email, subject, body)
+        log_info(f"📧 Email sent: {email_sent}")
         
-        log_info(f"📧 Result: email_sent={email_sent}")
-        
-        return json_response({
-            'status': 'success',
-            'share_url': share_url,
-            'email_sent': email_sent,
-            'message': 'Shared successfully' if email_sent else 'Link created (email failed)'
-        })
+        if email_sent:
+            return json_response({
+                'status': 'success',
+                'share_url': share_url,
+                'email_sent': True,
+                'message': f'File shared successfully! Email sent to {recipient_email}'
+            })
+        else:
+            return json_response({
+                'status': 'partial',
+                'share_url': share_url,
+                'email_sent': False,
+                'message': 'Share link created but email could not be sent. You can copy the link manually.',
+                'warning': 'Email service may not be configured. Check RESEND_API_KEY.'
+            })
         
     except File.DoesNotExist:
         return json_response({'error': 'File not found'}, status=404)
@@ -229,61 +223,80 @@ def share_via_email(request, file_id):
 
 @csrf_exempt
 def shared_file_view(request, slug, action=None):
+    """View or download a shared file"""
     log_info(f"📥 SHARED FILE - Slug: {slug}, Action: {action}")
     
     try:
         link = SharedLink.objects.select_related('file').get(slug=slug, is_active=True)
     except SharedLink.DoesNotExist:
         if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
-            return render(request, 'shared_file_error.html', {'error': 'Link not found'}, status=404)
-        return json_response({'error': 'Link not found'}, status=404)
+            return render(request, 'shared_file_error.html', {'error': 'Link not found or expired'}, status=404)
+        return json_response({'error': 'Link not found or expired'}, status=404)
     
     if link.is_expired():
         link.is_active = False
         link.save()
-        return json_response({'error': 'Link expired'}, status=410)
+        if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
+            return render(request, 'shared_file_error.html', {'error': 'This link has expired'}, status=410)
+        return json_response({'error': 'Link has expired'}, status=410)
     
     file_obj = link.file
     
     if file_obj.deleted:
-        return json_response({'error': 'File unavailable'}, status=404)
+        return json_response({'error': 'File is no longer available'}, status=404)
     
+    # Set first access time and expiry
     if not link.first_accessed_at:
         link.first_accessed_at = timezone.now()
         link.expires_at = timezone.now() + timedelta(hours=24)
         link.save()
     
+    # Increment view count
     link.view_count = (link.view_count or 0) + 1
-    link.save()
+    link.save(update_fields=['view_count'])
     
+    # Handle download
     if action == 'download':
         if link.download_count >= link.max_downloads:
             return json_response({'error': 'Download limit reached'}, status=403)
         
         link.download_count += 1
-        link.save()
+        link.save(update_fields=['download_count'])
+        
+        log_info(f"📥 Download #{link.download_count} for {file_obj.original_name}")
         
         try:
-            return FileResponse(
+            response = FileResponse(
                 file_obj.file.open('rb'),
                 as_attachment=True,
                 filename=file_obj.original_name
             )
+            return response
         except Exception as e:
+            log_error(f"📥 Download error: {e}")
             return json_response({'error': 'Download failed'}, status=500)
     
+    # Show preview page for HTML requests
     if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
+        site_url = get_site_url(request)
         return render(request, 'shared_file.html', {
             'file': file_obj,
             'link': link,
-            'download_url': f"/s/{slug}/download/"
+            'download_url': f"{site_url}/s/{slug}/download/",
+            'downloads_remaining': link.max_downloads - link.download_count
         })
     
+    # JSON response for API
     return json_response({
-        'file': {'name': file_obj.original_name, 'size': file_obj.size},
-        'download_url': f"/s/{slug}/download/"
+        'file': {
+            'name': file_obj.original_name,
+            'size': file_obj.size
+        },
+        'download_url': f"/s/{slug}/download/",
+        'downloads_remaining': link.max_downloads - link.download_count
     })
 
 
 def download_shared_file(request, slug):
+    """Direct download endpoint"""
     return shared_file_view(request, slug, action='download')
