@@ -1,29 +1,30 @@
 # accounts/utils.py
 import secrets
 import threading
-import requests
-from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
 from django.conf import settings
 from .models import UserProfile
 
 
-def send_email_async(func, *args, **kwargs):
-    """Run email sending in background thread"""
-    thread = threading.Thread(target=func, args=args, kwargs=kwargs)
-    thread.daemon = True
-    thread.start()
-
-
 def _send_with_resend(to_email, subject, html_content, text_content):
     """Send email using Resend API (works on Render free tier)"""
-    api_key = getattr(settings, 'RESEND_API_KEY', '')
+    import requests
+    
+    api_key = getattr(settings, 'RESEND_API_KEY', '').strip()
     
     if not api_key:
-        print("❌ RESEND_API_KEY not configured")
+        print("❌ RESEND_API_KEY not configured!")
+        print("   👉 Add RESEND_API_KEY to Render environment variables")
+        print("   👉 Get free API key from https://resend.com")
         return False
     
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'DropVault <onboarding@resend.dev>')
+    
     try:
+        print(f"📤 Sending via Resend API to: {to_email}")
+        print(f"   From: {from_email}")
+        print(f"   API Key: {api_key[:10]}...")
+        
         response = requests.post(
             'https://api.resend.com/emails',
             headers={
@@ -31,7 +32,7 @@ def _send_with_resend(to_email, subject, html_content, text_content):
                 'Content-Type': 'application/json'
             },
             json={
-                'from': settings.DEFAULT_FROM_EMAIL,
+                'from': from_email,
                 'to': [to_email],
                 'subject': subject,
                 'html': html_content,
@@ -40,47 +41,30 @@ def _send_with_resend(to_email, subject, html_content, text_content):
             timeout=30
         )
         
+        print(f"   Response status: {response.status_code}")
+        print(f"   Response body: {response.text}")
+        
         if response.status_code == 200:
-            print(f"✅ Email sent via Resend to {to_email}")
+            print(f"✅ Email sent successfully to {to_email}")
             return True
         else:
-            print(f"❌ Resend API error: {response.status_code} - {response.text}")
+            print(f"❌ Resend API error: {response.status_code}")
+            print(f"   Error: {response.text}")
             return False
             
     except Exception as e:
         print(f"❌ Resend API exception: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
-def _send_with_smtp(to_email, subject, html_content, text_content):
-    """Send email using SMTP (fallback for local development)"""
-    try:
-        msg = EmailMultiAlternatives(
-            subject=subject,
-            body=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[to_email]
-        )
-        msg.attach_alternative(html_content, "text/html")
-        msg.send(fail_silently=False)
-        print(f"✅ Email sent via SMTP to {to_email}")
-        return True
-    except Exception as e:
-        print(f"❌ SMTP error: {e}")
-        return False
-
-
-def _do_send_verification_email(user_id, email, first_name, token, verification_url):
-    """
-    Actually send the email (runs in background thread)
-    """
-    print(f"📤 Background: Sending verification email to {email}")
+def _build_email_content(user, verification_url):
+    """Build email HTML and text content"""
+    name = user.first_name or user.email
     
-    subject = 'Verify Your Email - DropVault'
-    
-    # Plain text version
     text_content = f"""
-Hi {first_name or email},
+Hi {name},
 
 Welcome to DropVault! Please verify your email address by clicking the link below:
 
@@ -94,46 +78,43 @@ Thanks,
 The DropVault Team
     """
     
-    # HTML version
     html_content = f"""
 <!DOCTYPE html>
 <html>
 <head>
-    <style>
-        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-        .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-        .button {{ display: inline-block; padding: 15px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }}
-        .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
-    </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔐 DropVault</h1>
-            <p>Secure File Storage</p>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+            <h1 style="margin: 0;">🔐 DropVault</h1>
+            <p style="margin: 10px 0 0 0;">Secure File Storage</p>
         </div>
-        <div class="content">
-            <h2>Welcome to DropVault!</h2>
-            <p>Hi {first_name or email},</p>
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+            <h2 style="color: #333; margin-top: 0;">Welcome to DropVault!</h2>
+            <p>Hi {name},</p>
             <p>Thanks for signing up! Please verify your email address to unlock all features:</p>
             
-            <div style="text-align: center;">
-                <a href="{verification_url}" class="button">Verify Email Address</a>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{verification_url}" style="display: inline-block; padding: 15px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                    Verify Email Address
+                </a>
             </div>
             
-            <p>Or copy and paste this link into your browser:</p>
-            <p style="background: white; padding: 10px; word-break: break-all; font-size: 12px;">
+            <p style="font-size: 14px; color: #666;">Or copy and paste this link into your browser:</p>
+            <p style="background: white; padding: 10px; word-break: break-all; font-size: 12px; border-radius: 5px;">
                 {verification_url}
             </p>
             
-            <p style="margin-top: 30px; color: #666; font-size: 14px;">
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            
+            <p style="color: #666; font-size: 14px; margin-bottom: 0;">
                 This link will expire in 24 hours.<br>
                 If you didn't create this account, you can safely ignore this email.
             </p>
         </div>
-        <div class="footer">
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
             <p>© 2025 DropVault. All rights reserved.</p>
         </div>
     </div>
@@ -141,32 +122,56 @@ The DropVault Team
 </html>
     """
     
-    # Try Resend API first (works on Render), fallback to SMTP
-    resend_key = getattr(settings, 'RESEND_API_KEY', '')
-    
-    if resend_key:
-        success = _send_with_resend(email, subject, html_content, text_content)
-    else:
-        success = _send_with_smtp(email, subject, html_content, text_content)
-    
-    return success
+    return text_content, html_content
 
 
-def send_verification_email(user):
+def _do_send_email_background(to_email, subject, html_content, text_content):
+    """Background thread function to send email"""
+    try:
+        success = _send_with_resend(to_email, subject, html_content, text_content)
+        if success:
+            print(f"✅ Background email sent to {to_email}")
+        else:
+            print(f"❌ Background email failed for {to_email}")
+    except Exception as e:
+        print(f"❌ Background email exception: {e}")
+
+
+def send_verification_email(user, async_send=True):
     """
-    Send email verification link to user (NON-BLOCKING)
-    Returns immediately, email sends in background
+    Send email verification link to user.
+    
+    Args:
+        user: User object
+        async_send: If True, send in background thread (non-blocking)
+                   If False, send synchronously and return success status
+    
+    Returns:
+        bool: True if email was queued/sent, False if failed
     """
     print("=" * 60)
     print("📩 SEND_VERIFICATION_EMAIL CALLED")
     print(f"   User ID: {user.id}")
     print(f"   Username: {user.username}")
     print(f"   Email: '{user.email}'")
+    print(f"   Async: {async_send}")
     print("=" * 60)
     
     # Validate user has email
     if not user.email:
         print("❌ User has no email address")
+        return False
+    
+    # Check if Resend is configured
+    resend_key = getattr(settings, 'RESEND_API_KEY', '').strip()
+    if not resend_key:
+        print("=" * 60)
+        print("⚠️  EMAIL SERVICE NOT CONFIGURED!")
+        print("   To enable email sending:")
+        print("   1. Sign up at https://resend.com (free)")
+        print("   2. Create an API key")
+        print("   3. Add RESEND_API_KEY to Render environment variables")
+        print("=" * 60)
         return False
     
     try:
@@ -181,26 +186,44 @@ def send_verification_email(user):
         token = profile.verification_token
         print(f"✅ Verification token: {token[:20]}...")
         
-        # Build verification URL using correct SITE_URL
+        # Build verification URL
         verification_path = reverse('verify_email', kwargs={'token': token})
-        site_url = getattr(settings, 'SITE_URL', 'http://localhost:8000')
+        
+        # Get correct site URL
+        site_url = getattr(settings, 'SITE_URL', '').strip()
+        
+        # Auto-detect from Render if not set
+        if not site_url or 'localhost' in site_url:
+            import os
+            render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
+            if render_host:
+                site_url = f'https://{render_host}'
+                print(f"   Auto-detected Render URL: {site_url}")
+        
+        # Fallback
+        if not site_url:
+            site_url = 'http://localhost:8000'
+        
         verification_url = f"{site_url.rstrip('/')}{verification_path}"
-        
         print(f"✅ Verification URL: {verification_url}")
-        print(f"✅ SITE_URL: {site_url}")
         
-        # Send email in background thread (NON-BLOCKING!)
-        send_email_async(
-            _do_send_verification_email,
-            user.id,
-            user.email,
-            user.first_name,
-            token,
-            verification_url
-        )
+        # Build email content
+        text_content, html_content = _build_email_content(user, verification_url)
+        subject = 'Verify Your Email - DropVault'
         
-        print("✅ Email queued for background sending!")
-        return True
+        if async_send:
+            # Send in background thread (non-blocking)
+            thread = threading.Thread(
+                target=_do_send_email_background,
+                args=(user.email, subject, html_content, text_content)
+            )
+            thread.daemon = True
+            thread.start()
+            print("✅ Email queued for background sending")
+            return True
+        else:
+            # Send synchronously (blocking)
+            return _send_with_resend(user.email, subject, html_content, text_content)
         
     except Exception as e:
         print(f"❌ Email setup failed: {e}")

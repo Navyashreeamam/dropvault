@@ -245,19 +245,30 @@ def verify_email_prompt(request):
         messages.error(request, "No email associated with your account.")
         return render(request, 'verify_prompt.html')
     
+    # Check if email service is configured
+    import os
+    email_configured = bool(os.environ.get('RESEND_API_KEY', '').strip())
+    
     if request.method == 'POST':
+        if not email_configured:
+            messages.error(request, "Email service is not configured. Please contact support.")
+            return redirect('verify_email_prompt')
+        
         try:
-            success = send_verification_email(request.user)
+            # Send synchronously to get real status
+            success = send_verification_email(request.user, async_send=False)
             if success:
-                messages.success(request, f"Verification email sent to {user_email}.")
+                messages.success(request, f"Verification email sent to {user_email}. Check your inbox and spam folder.")
             else:
-                messages.error(request, f"Failed to send email to {user_email}.")
+                messages.error(request, "Failed to send verification email. Please try again later.")
         except Exception as e:
             messages.error(request, f"Error sending email: {str(e)}")
         return redirect('verify_email_prompt')
     
-    return render(request, 'verify_prompt.html')
-
+    context = {
+        'email_configured': email_configured,
+    }
+    return render(request, 'verify_prompt.html', context)
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 MFA VIEWS
