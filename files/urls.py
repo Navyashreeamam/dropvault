@@ -15,7 +15,8 @@ urlpatterns = [
     
     # Add this for testing email config
     path('api/test-email-config/', sharingviews.test_email_config, name='test_email_config'),
-
+    
+    path('debug/shared/<slug:slug>/', sharingviews.debug_shared_file, name='debug_shared_file'), 
     # Sharing
     path('share/<int:file_id>/', sharingviews.create_share_link, name='create_share_link'),
     path('share/<int:file_id>/email/', sharingviews.share_via_email, name='share_via_email'),

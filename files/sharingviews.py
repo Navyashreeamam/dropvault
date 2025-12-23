@@ -10,6 +10,8 @@ from django.shortcuts import render
 from django.utils import timezone
 from datetime import timedelta
 from .models import File, SharedLink
+from django.shortcuts import get_object_or_404
+import mimetypes
 
 # Import the email function
 from accounts.utils import send_file_share_email, get_resend_api_key
@@ -312,8 +314,136 @@ def shared_file_view(request, slug, action=None):
 
 
 def download_shared_file(request, slug):
-    """Direct download endpoint"""
-    return shared_file_view(request, slug, action='download')
+    """Download a shared file"""
+    try:
+        # Get the shared link
+        shared_link = get_object_or_404(SharedLink, slug=slug)
+        
+        # Check if link is expired
+        if shared_link.expires_at and shared_link.expires_at < timezone.now():
+            return JsonResponse({
+                'error': 'This link has expired'
+            }, status=410)
+        
+        # Check if link is still active
+        if not shared_link.is_active:
+            return JsonResponse({
+                'error': 'This link is no longer active'
+            }, status=403)
+        
+        # Get the file
+        file_obj = shared_link.file
+        
+        # Check if file exists
+        if not file_obj.file:
+            return JsonResponse({
+                'error': 'File not found in database',
+                'details': 'The file record exists but no file is attached'
+            }, status=404)
+        
+        # Get the file path
+        file_path = file_obj.file.path
+        
+        # Check if file exists on disk
+        if not os.path.exists(file_path):
+            return JsonResponse({
+                'error': 'File not found on server',
+                'details': f'File was uploaded but no longer exists (Render ephemeral storage)',
+                'solution': 'Configure AWS S3 or Cloudinary for persistent storage'
+            }, status=404)
+        
+        # Increment download count
+        shared_link.download_count += 1
+        shared_link.save()
+        
+        # Get file mime type
+        content_type, _ = mimetypes.guess_type(file_obj.original_filename)
+        if not content_type:
+            content_type = 'application/octet-stream'
+        
+        # Open and return the file
+        file_handle = open(file_path, 'rb')
+        response = FileResponse(file_handle, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{file_obj.original_filename}"'
+        response['Content-Length'] = os.path.getsize(file_path)
+        
+        return response
+        
+    except SharedLink.DoesNotExist:
+        return JsonResponse({
+            'error': 'Invalid or expired share link',
+            'slug': slug
+        }, status=404)
+        
+    except FileNotFoundError as e:
+        return JsonResponse({
+            'error': 'File not found on disk',
+            'details': str(e),
+            'note': 'Render uses ephemeral storage - files are deleted on restart'
+        }, status=404)
+        
+    except Exception as e:
+        # Log the error
+        print(f"Download error: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        
+        return JsonResponse({
+            'error': 'Download failed',
+            'details': str(e),
+            'type': type(e).__name__
+        }, status=500)
+    
+
+def debug_shared_file(request, slug):
+    """Debug endpoint to check file status"""
+    from django.conf import settings
+    import os
+    
+    try:
+        shared_link = get_object_or_404(SharedLink, slug=slug)
+        file_obj = shared_link.file
+        
+        # Get file info
+        file_path = file_obj.file.path if file_obj.file else None
+        file_exists = os.path.exists(file_path) if file_path else False
+        
+        debug_info = {
+            'shared_link': {
+                'slug': shared_link.slug,
+                'is_active': shared_link.is_active,
+                'expires_at': shared_link.expires_at,
+                'download_count': shared_link.download_count,
+            },
+            'file': {
+                'id': file_obj.id,
+                'original_filename': file_obj.original_filename,
+                'file_field': str(file_obj.file),
+                'file_path': file_path,
+                'file_exists_on_disk': file_exists,
+                'file_size': file_obj.file.size if file_obj.file else None,
+            },
+            'settings': {
+                'MEDIA_ROOT': settings.MEDIA_ROOT,
+                'MEDIA_URL': settings.MEDIA_URL,
+            },
+            'server': {
+                'platform': 'Render' if 'render' in request.get_host() else 'Local',
+                'storage_type': 'Ephemeral (files deleted on restart)' if 'render' in request.get_host() else 'Local disk',
+            }
+        }
+        
+        if file_exists and file_path:
+            debug_info['file']['actual_size_on_disk'] = os.path.getsize(file_path)
+        
+        return JsonResponse(debug_info, status=200)
+        
+    except Exception as e:
+        return JsonResponse({
+            'error': str(e),
+            'type': type(e).__name__
+        }, status=500)
 
 
 # ═══════════════════════════════════════════════════════════
