@@ -33,6 +33,8 @@ from django.contrib.auth import logout
 from django.db import models
 from files.models import File
 from django.contrib.auth import update_session_auth_hash
+import logger
+from django.contrib.auth.hashers import make_password
 
 
 # Get the User model
@@ -52,26 +54,31 @@ def home(request):
 # 🔐 GOOGLE OAUTH (PLACEHOLDER - Implement if needed)
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "OPTIONS"])
 def api_google_login(request):
-    """Handle Google OAuth login"""
+    """Handle Google OAuth login (placeholder)"""
+    if request.method == "OPTIONS":
+        return JsonResponse({'status': 'ok'})
+    
     try:
         data = json.loads(request.body)
         code = data.get('code')
         
-        # TODO: Implement Google OAuth token exchange
-        # For now, return error
+        # TODO: Implement Google OAuth
+        logger.info(f"Google login attempt with code: {code[:10]}...")
+        
         return JsonResponse({
             'success': False,
-            'error': 'Google OAuth not yet implemented'
+            'error': 'Google OAuth not yet implemented on backend'
         }, status=501)
         
     except Exception as e:
+        logger.error(f"Google login error: {str(e)}")
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Google login failed'
         }, status=500)
-
+    
 # ═══════════════════════════════════════════════════════════
 # 📝 WEB SIGNUP VIEW (HTML Form)
 # ═══════════════════════════════════════════════════════════
@@ -362,149 +369,120 @@ def disable_mfa(request):
     return render(request, 'disable_mfa.html')
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 API VIEWS (JSON Responses - NEVER redirect)
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
 def api_signup(request):
-    """
-    API endpoint for signup - returns JSON ONLY (never redirects)
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed. Use POST.'}, status=405)
+    """Handle user registration"""
+    if request.method == "OPTIONS":
+        return JsonResponse({'status': 'ok'})
     
     try:
         data = json.loads(request.body)
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '').strip()
-        confirm_password = data.get('confirm_password', password).strip()
         name = data.get('name', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
         
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    
-    # Validation
-    if not email or not password:
-        return JsonResponse({'error': 'Email and password are required.'}, status=400)
-    
-    if password != confirm_password:
-        return JsonResponse({'error': 'Passwords do not match.'}, status=400)
-    
-    try:
-        validate_email(email)
-    except ValidationError:
-        return JsonResponse({'error': 'Invalid email format.'}, status=400)
-    
-    if User.objects.filter(email__iexact=email).exists():
-        return JsonResponse({
-            'error': 'An account with this email already exists.',
-            'action': 'login'
-        }, status=400)
-    
-    try:
-        validate_password(password)
-    except ValidationError as e:
-        return JsonResponse({'error': ' '.join(e.messages)}, status=400)
-    
-    # Create user
-    try:
-        base_username = email.split('@')[0]
-        username = base_username
+        # Validate
+        if not email or not password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email and password are required'
+            }, status=400)
+        
+        # Check if exists
+        if User.objects.filter(email=email).exists():
+            return JsonResponse({
+                'success': False,
+                'error': 'Email already registered'
+            }, status=400)
+        
+        # Create user
+        username = email.split('@')[0]
         counter = 1
         while User.objects.filter(username=username).exists():
-            username = f"{base_username}_{counter}"
+            username = f"{email.split('@')[0]}{counter}"
             counter += 1
         
-        user = User.objects.create_user(
+        name_parts = name.split() if name else [username]
+        first_name = name_parts[0]
+        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+        
+        user = User.objects.create(
             username=username,
             email=email,
-            password=password,
-            first_name=name,
-            is_active=True
+            first_name=first_name,
+            last_name=last_name,
+            password=make_password(password)
         )
         
-        profile, _ = UserProfile.objects.get_or_create(user=user)
+        # Auto-login
+        login(request, user)
         
-        email_sent = False
-        try:
-            email_sent = send_verification_email(user)
-        except Exception:
-            pass
-        
-        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-        
-        # ✅ Return JSON only - never redirect
         return JsonResponse({
-            'status': 'success',
-            'message': 'Account created successfully.',
+            'success': True,
+            'token': 'session-based-auth',
             'user': {
                 'id': user.id,
                 'email': user.email,
-                'name': user.first_name,
-                'email_verified': False
-            },
-            'verification_email_sent': email_sent,
-            'sessionid': request.session.session_key
-        }, status=201)
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'username': user.username,
+            }
+        })
         
     except Exception as e:
-        return JsonResponse({'error': f'Error creating account: {str(e)}'}, status=500)
-
+        return JsonResponse({
+            'success': False,
+            'error': 'Registration failed'
+        }, status=500)
 
 @csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
 def api_login(request):
-    """
-    API endpoint for login - returns JSON ONLY (never redirects)
-    Works even if email is not verified
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed. Use POST.'}, status=405)
+    """Handle user login"""
+    if request.method == "OPTIONS":
+        return JsonResponse({'status': 'ok'})
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '').strip()
+        password = data.get('password', '')
         
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-    
-    if not email or not password:
-        return JsonResponse({'error': 'Email and password are required.'}, status=400)
-    
-    # Find user by email
-    try:
-        user = User.objects.get(email__iexact=email)
-    except User.DoesNotExist:
+        # Find user
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid email or password'
+            }, status=401)
+        
+        # Authenticate
+        user = authenticate(request, username=user.username, password=password)
+        
+        if user:
+            login(request, user)
+            return JsonResponse({
+                'success': True,
+                'token': 'session-based-auth',
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'username': user.username,
+                }
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid email or password'
+            }, status=401)
+            
+    except Exception as e:
         return JsonResponse({
-            'error': 'No account found with this email.',
-            'action': 'signup'
-        }, status=401)
-    
-    # Authenticate using username (Django requires username)
-    auth_user = authenticate(request, username=user.username, password=password)
-    if auth_user is None:
-        return JsonResponse({'error': 'Invalid password.'}, status=401)
-    
-    # Login user
-    login(request, auth_user)
-    
-    # Get profile info
-    profile = getattr(auth_user, 'userprofile', None)
-    email_verified = profile.email_verified if profile else False
-    
-    # ✅ ALWAYS return JSON - never redirect (even if email not verified)
-    return JsonResponse({
-        'status': 'success',
-        'message': 'Logged in successfully.',
-        'user': {
-            'id': auth_user.id,
-            'email': auth_user.email,
-            'name': auth_user.first_name,
-            'email_verified': email_verified
-        },
-        'email_verified': email_verified,
-        'sessionid': request.session.session_key
-    }, status=200)
+            'success': False,
+            'error': 'Login failed'
+        }, status=500)
+
 
 
 @csrf_exempt
