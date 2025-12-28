@@ -5,13 +5,20 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from accounts import views as accounts_views
 from files import views as file_views
 from files import sharingviews
 
 
+@csrf_exempt
 def health_check(request):
-    return JsonResponse({'status': 'ok', 'message': 'DropVault is running'})
+    """Health check endpoint"""
+    return JsonResponse({
+        'status': 'ok',
+        'message': 'DropVault Backend is running',
+        'version': '1.0.0'
+    })
 
 
 urlpatterns = [
@@ -19,6 +26,7 @@ urlpatterns = [
     # 🏥 HEALTH CHECK
     # ═══════════════════════════════════════════════════════════
     path('health/', health_check, name='health_check'),
+    path('api/health/', health_check, name='api_health_check'),  # ✅ ADDED
     
     # ═══════════════════════════════════════════════════════════
     # 🔧 ADMIN
@@ -32,29 +40,54 @@ urlpatterns = [
     path('dashboard/', login_required(file_views.dashboard), name='dashboard'),
     
     # ═══════════════════════════════════════════════════════════
-    # 🔐 AUTH APIs
+    # 🔐 AUTH APIs (REACT FRONTEND - NEW ENDPOINTS)
     # ═══════════════════════════════════════════════════════════
+    path('api/auth/login/', accounts_views.api_login, name='api_auth_login'),  # ✅ NEW
+    path('api/auth/register/', accounts_views.api_signup, name='api_auth_register'),  # ✅ NEW
+    path('api/auth/logout/', accounts_views.api_logout, name='api_auth_logout'),  # ✅ NEW
+    path('api/auth/profile/', accounts_views.api_user_profile, name='api_auth_profile'),  # ✅ NEW
+    path('api/auth/google/', accounts_views.api_google_login, name='api_google_login'),  # ✅ NEW
+    path('api/auth/check/', accounts_views.api_check_auth, name='api_auth_check'),  # ✅ NEW
+    
+    # Legacy endpoints (backward compatibility)
     path('api/signup/', accounts_views.api_signup, name='api_signup'),
     path('api/login/', accounts_views.api_login, name='api_login'),
     path('api/logout/', accounts_views.api_logout, name='api_logout'),
     path('api/verify-email/', accounts_views.api_verify_email, name='api_verify_email'),
-    path('api/auth/check/', accounts_views.api_check_auth, name='api_check_auth'),
     
     # ═══════════════════════════════════════════════════════════
-    # 👤 USER APIs
+    # 📊 DASHBOARD APIs (REACT FRONTEND)
     # ═══════════════════════════════════════════════════════════
+    path('api/dashboard/stats/', accounts_views.api_dashboard, name='api_dashboard_stats'),  # ✅ NEW
+    path('api/dashboard/', accounts_views.api_dashboard, name='api_dashboard'),  # Legacy
+    
+    # ═══════════════════════════════════════════════════════════
+    # 👤 USER & SETTINGS APIs (REACT FRONTEND)
+    # ═══════════════════════════════════════════════════════════
+    path('api/settings/profile/', accounts_views.api_update_profile, name='api_settings_profile'),  # ✅ NEW
+    path('api/settings/password/', accounts_views.api_change_password, name='api_settings_password'),  # ✅ NEW
+    path('api/settings/preferences/', accounts_views.api_preferences, name='api_settings_preferences'),  # ✅ NEW
+    
+    # Legacy endpoints
     path('api/user/', accounts_views.api_user_profile, name='api_user_profile'),
-    path('api/dashboard/', accounts_views.api_dashboard, name='api_dashboard'),
     path('api/user/profile/', accounts_views.api_update_profile, name='api_update_profile'),
     path('api/user/password/', accounts_views.api_change_password, name='api_change_password'),
     path('api/user/preferences/', accounts_views.api_preferences, name='api_preferences'),
     
     # ═══════════════════════════════════════════════════════════
-    # 📁 FILE APIs
+    # 📁 FILE APIs (REACT FRONTEND)
     # ═══════════════════════════════════════════════════════════
+    path('api/files/', file_views.list_files, name='api_files_list'),  # ✅ NEW
+    path('api/files/upload/', file_views.upload_file, name='api_files_upload'),  # ✅ NEW
+    path('api/files/trash/', file_views.trash_list, name='api_files_trash'),  # ✅ NEW
+    path('api/files/<int:file_id>/', file_views.delete_file, name='api_files_delete'),  # ✅ NEW
+    path('api/files/<int:file_id>/restore/', file_views.restore_file, name='api_files_restore'),  # ✅ NEW
+    path('api/files/<int:file_id>/share/', sharingviews.create_share_link, name='api_files_share'),  # ✅ NEW
+    path('api/files/shared/', file_views.shared_files, name='api_files_shared'),  # ✅ NEW (you need to create this)
+    
+    # Legacy endpoints
     path('api/upload/', file_views.upload_file, name='api_upload'),
     path('api/list/', file_views.list_files, name='api_list'),
-    path('api/files/', file_views.list_files, name='api_files'),  # Alias
     path('api/delete/<int:file_id>/', file_views.delete_file, name='api_delete'),
     path('api/trash/', file_views.trash_list, name='api_trash'),
     path('api/restore/<int:file_id>/', file_views.restore_file, name='api_restore'),
