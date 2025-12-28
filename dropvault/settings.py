@@ -289,6 +289,15 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 SECURE_PROXY_SSL_HEADER = None
 USE_X_FORWARDED_HOST = False
 
+# ═══════════════════════════════════════════════════════════
+# 🌐 ALLOWED_HOSTS (FIXED - Remove https://)
+# ═══════════════════════════════════════════════════════════
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'dropvault-2.onrender.com',  # ✅ FIXED - No https://
+    '.onrender.com',  # Allow all Render subdomains
+]
 
 # ═══════════════════════════════════════════════════════════
 # 🌍 CORS CONFIGURATION
@@ -330,11 +339,13 @@ CORS_ALLOW_METHODS = [
 ]
 
 # ═══════════════════════════════════════════════════════════
-# 🔒 CSRF TRUSTED ORIGINS (Required for Render)
+# 🔒 CSRF TRUSTED ORIGINS (FIXED)
 # ═══════════════════════════════════════════════════════════
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://dropvault-2.onrender.com",  # ✅ Your backend
+    "https://dropvault-frontend-1.onrender.com",  # ✅ Your frontend
     "https://*.onrender.com",
 ]
 

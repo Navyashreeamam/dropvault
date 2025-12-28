@@ -32,6 +32,7 @@ from rest_framework import status
 from django.contrib.auth import logout
 from django.db import models
 from files.models import File
+from django.contrib.auth import update_session_auth_hash
 
 
 # Get the User model
@@ -47,6 +48,29 @@ def home(request):
         return redirect('dashboard')
     return render(request, 'home.html')
 
+# ═══════════════════════════════════════════════════════════
+# 🔐 GOOGLE OAUTH (PLACEHOLDER - Implement if needed)
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_google_login(request):
+    """Handle Google OAuth login"""
+    try:
+        data = json.loads(request.body)
+        code = data.get('code')
+        
+        # TODO: Implement Google OAuth token exchange
+        # For now, return error
+        return JsonResponse({
+            'success': False,
+            'error': 'Google OAuth not yet implemented'
+        }, status=501)
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 # ═══════════════════════════════════════════════════════════
 # 📝 WEB SIGNUP VIEW (HTML Form)
@@ -638,6 +662,141 @@ def api_logout(request):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# ═══════════════════════════════════════════════════════════
+# ⚙️ SETTINGS - UPDATE PROFILE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["PUT", "PATCH"])
+def api_update_profile(request):
+    """Update user profile"""
+    if not request.user.is_authenticated:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        data = json.loads(request.body)
+        user = request.user
+        
+        # Update fields
+        if 'name' in data:
+            user.first_name = data['name'].split()[0] if data['name'] else ''
+            user.last_name = ' '.join(data['name'].split()[1:]) if len(data['name'].split()) > 1 else ''
+        
+        if 'email' in data and data['email'] != user.email:
+            # Check if email already exists
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            if User.objects.filter(email=data['email']).exclude(pk=user.pk).exists():
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Email already in use'
+                }, status=400)
+            user.email = data['email']
+        
+        user.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'data': {
+                'id': user.id,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email': user.email,
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+# ═══════════════════════════════════════════════════════════
+# ⚙️ SETTINGS - CHANGE PASSWORD
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["PUT", "PATCH"])
+def api_change_password(request):
+    """Change user password"""
+    if not request.user.is_authenticated:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        data = json.loads(request.body)
+        user = request.user
+        
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        
+        # Verify current password
+        if not user.check_password(current_password):
+            return JsonResponse({
+                'success': False,
+                'error': 'Current password is incorrect'
+            }, status=400)
+        
+        # Validate new password
+        if len(new_password) < 8:
+            return JsonResponse({
+                'success': False,
+                'error': 'New password must be at least 8 characters'
+            }, status=400)
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        # Keep user logged in
+        update_session_auth_hash(request, user)
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Password updated successfully'
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+# ═══════════════════════════════════════════════════════════
+# ⚙️ SETTINGS - PREFERENCES
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+@require_http_methods(["GET", "PUT", "PATCH"])
+def api_preferences(request):
+    """Get or update user preferences"""
+    if not request.user.is_authenticated:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    if request.method == 'GET':
+        # Return default preferences (you can store these in a UserProfile model)
+        return JsonResponse({
+            'success': True,
+            'data': {
+                'emailNotifications': True,
+                'twoFactorAuth': False,
+                'darkMode': False,
+            }
+        })
+    
+    try:
+        data = json.loads(request.body)
+        # TODO: Save preferences to database
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Preferences saved successfully',
+            'data': data
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
