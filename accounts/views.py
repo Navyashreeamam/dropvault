@@ -33,8 +33,10 @@ from django.contrib.auth import logout
 from django.db import models
 from files.models import File
 from django.contrib.auth import update_session_auth_hash
-import logger
+import logging
+logger = logging.getLogger(__name__)
 from django.contrib.auth.hashers import make_password
+
 
 
 # Get the User model
