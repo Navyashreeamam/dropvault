@@ -262,15 +262,30 @@ MIDDLEWARE = [
 ]
 
 # ═══════════════════════════════════════════════════════════
-# 🍪 SESSION CONFIGURATION
+# 🍪 SESSION & COOKIE CONFIGURATION
 # ═══════════════════════════════════════════════════════════
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_NAME = 'dropvault_sessionid'
-SESSION_COOKIE_AGE = 86400
+SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+
+# ✅ CRITICAL - SameSite must be None for cross-origin
+SESSION_COOKIE_SAMESITE = 'None'  # Changed from 'Lax'
+SESSION_COOKIE_SECURE = True  # Required when SameSite=None
+
+# CSRF settings
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = False  # Must be False so JS can read it
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://dropvault-2.onrender.com",
+    "https://dropvault-frontend-1.onrender.com",
+    "https://*.onrender.com",
+]
 
 if IS_RENDER or IS_RAILWAY:
     SESSION_COOKIE_SECURE = True
@@ -300,27 +315,19 @@ ALLOWED_HOSTS = [
 ]
 
 # ═══════════════════════════════════════════════════════════
-# 🌍 CORS CONFIGURATION - FIXED
+# 🌍 CORS CONFIGURATION (CRITICAL FOR SESSION AUTH)
 # ═══════════════════════════════════════════════════════════
 CORS_ALLOWED_ORIGINS = [
-    # Local development
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    # Production - Render Frontend
-    "https://dropvault-frontend-1.onrender.com",
+    "https://dropvault-frontend-1.onrender.com",  # ✅ Your frontend
     "https://dropvaultnew-frontend.onrender.com/",
-
 ]
 
-# Also allow Render subdomains via regex
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*\.onrender\.com$",
-]
-
+# ✅ CRITICAL - Must be True for session cookies
 CORS_ALLOW_CREDENTIALS = True
 
+# ✅ CRITICAL - Allow session cookie headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -331,6 +338,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'cookie',  # ✅ ADD THIS
 ]
 
 CORS_ALLOW_METHODS = [
@@ -341,6 +349,9 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
+# ✅ CRITICAL - Expose credentials
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 CSRF TRUSTED ORIGINS (FIXED)
