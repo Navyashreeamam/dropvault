@@ -24,6 +24,15 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from .models import UserProfile, LoginAttempt
 from .utils import verify_token, send_verification_email
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework import status
+from django.contrib.auth import logout
+from django.db import models
+from files.models import File
+
 
 # Get the User model
 User = get_user_model()
@@ -525,6 +534,151 @@ def test_email(request):
     except Exception as e:
         return HttpResponse(f"Email failed: {str(e)}", status=500)
 
+
+######
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_dashboard(request):
+    """
+    Dashboard API - Returns user stats and recent files
+    GET /api/dashboard/
+    """
+    user = request.user
+    
+    try:
+        # Get file statistics
+        total_files = File.objects.filter(owner=user, is_deleted=False).count()
+        total_trash = File.objects.filter(owner=user, is_deleted=True).count()
+        
+        # Get recent files (last 5)
+        recent_files = File.objects.filter(
+            owner=user, 
+            is_deleted=False
+        ).order_by('-uploaded_at')[:5]
+        
+        recent_files_data = []
+        for f in recent_files:
+            recent_files_data.append({
+                'id': f.id,
+                'name': f.original_filename,
+                'size': f.file_size,
+                'uploaded_at': f.uploaded_at.isoformat(),
+                'file_type': f.file_type if hasattr(f, 'file_type') else 'unknown',
+            })
+        
+        # Calculate storage used (optional)
+        total_storage = File.objects.filter(
+            owner=user, 
+            is_deleted=False
+        ).aggregate(total=models.Sum('file_size'))['total'] or 0
+        
+        return Response({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'date_joined': user.date_joined.isoformat(),
+            },
+            'stats': {
+                'total_files': total_files,
+                'total_trash': total_trash,
+                'storage_used': total_storage,
+                'storage_used_formatted': format_file_size(total_storage),
+            },
+            'recent_files': recent_files_data,
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_user_profile(request):
+    """
+    Get current user profile
+    GET /api/user/
+    """
+    user = request.user
+    
+    return Response({
+        'success': True,
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'date_joined': user.date_joined.isoformat(),
+            'is_verified': user.is_active,  # or your custom field
+        }
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_logout(request):
+    """
+    Logout user
+    POST /api/logout/
+    """
+    try:
+        logout(request)
+        return Response({
+            'success': True,
+            'message': 'Logged out successfully'
+        })
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def api_check_auth(request):
+    """
+    Check if user is authenticated
+    GET /api/auth/check/
+    """
+    if request.user.is_authenticated:
+        return Response({
+            'authenticated': True,
+            'user': {
+                'id': request.user.id,
+                'email': request.user.email,
+                'username': request.user.username,
+            }
+        })
+    else:
+        return Response({
+            'authenticated': False,
+            'user': None
+        })
+
+
+# Helper function
+def format_file_size(size_bytes):
+    """Convert bytes to human readable format"""
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    return f"{size:.2f} {units[unit_index]}"
+
+#####
 
 @login_required
 def upload_test(request):
