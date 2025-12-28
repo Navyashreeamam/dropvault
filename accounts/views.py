@@ -559,7 +559,9 @@ def test_email(request):
         return HttpResponse(f"Email failed: {str(e)}", status=500)
 
 
-######
+# ═══════════════════════════════════════════════════════════
+# 📊 API DASHBOARD - FIXED VERSION
+# ═══════════════════════════════════════════════════════════
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_dashboard(request):
@@ -570,31 +572,34 @@ def api_dashboard(request):
     user = request.user
     
     try:
-        # Get file statistics
-        total_files = File.objects.filter(owner=user, is_deleted=False).count()
-        total_trash = File.objects.filter(owner=user, is_deleted=True).count()
+        # ✅ FIXED: Use correct field names from files/views.py
+        # Model uses: user, deleted, original_name, size (NOT owner, is_deleted, original_filename, file_size)
+        
+        total_files = File.objects.filter(user=user, deleted=False).count()
+        total_trash = File.objects.filter(user=user, deleted=True).count()
         
         # Get recent files (last 5)
         recent_files = File.objects.filter(
-            owner=user, 
-            is_deleted=False
+            user=user, 
+            deleted=False
         ).order_by('-uploaded_at')[:5]
         
         recent_files_data = []
         for f in recent_files:
             recent_files_data.append({
                 'id': f.id,
-                'name': f.original_filename,
-                'size': f.file_size,
+                'name': f.original_name,          # ✅ FIXED: was original_filename
+                'filename': f.original_name,      # ✅ Added for frontend compatibility
+                'size': f.size,                   # ✅ FIXED: was file_size
                 'uploaded_at': f.uploaded_at.isoformat(),
-                'file_type': f.file_type if hasattr(f, 'file_type') else 'unknown',
             })
         
-        # Calculate storage used (optional)
+        # Calculate storage used
+        from django.db.models import Sum
         total_storage = File.objects.filter(
-            owner=user, 
-            is_deleted=False
-        ).aggregate(total=models.Sum('file_size'))['total'] or 0
+            user=user, 
+            deleted=False
+        ).aggregate(total=Sum('size'))['total'] or 0   # ✅ FIXED: was file_size
         
         return Response({
             'success': True,
@@ -614,11 +619,13 @@ def api_dashboard(request):
         })
         
     except Exception as e:
+        import traceback
+        print(f"Dashboard API Error: {e}")
+        print(traceback.format_exc())
         return Response({
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

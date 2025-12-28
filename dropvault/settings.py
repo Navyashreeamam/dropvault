@@ -300,22 +300,27 @@ ALLOWED_HOSTS = [
 ]
 
 # ═══════════════════════════════════════════════════════════
-# 🌍 CORS CONFIGURATION
+# 🌍 CORS CONFIGURATION - FIXED
 # ═══════════════════════════════════════════════════════════
 CORS_ALLOWED_ORIGINS = [
+    # Local development
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://dropvault-frontend.onrender.com",
+    # Production - Render Frontend
+    "https://dropvaultnew-frontend.onrender.com",
     ##"https://dropvaultnew-frontend.onrender.com/",
 
 ]
 
+# Also allow Render subdomains via regex
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.onrender\.com$",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
-
-# Allow all necessary headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -328,7 +333,6 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-# Allow all necessary methods
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
