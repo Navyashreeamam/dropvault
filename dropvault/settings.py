@@ -314,21 +314,24 @@ ALLOWED_HOSTS = [
     '.onrender.com',  # Allow all Render subdomains
 ]
 
-# ═══════════════════════════════════════════════════════════
-# 🌍 CORS CONFIGURATION (CRITICAL FOR SESSION AUTH)
-# ═══════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════
+# 🌍 CORS CONFIGURATION - FIXED
+# ═══════════════════════════════════════════════════════════
 CORS_ALLOWED_ORIGINS = [
+    # Local development
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    # Production - Render Frontend (ADD ALL YOUR FRONTEND URLS)
     "https://dropvaultnew-frontend.onrender.com",
+    "https://dropvault-frontend-1.onrender.com",
 ]
 
-# Allow all Render subdomains
+# Also allow Render subdomains via regex
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.onrender\.com$",
 ]
@@ -357,12 +360,17 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# Expose headers to frontend
 CORS_EXPOSE_HEADERS = [
     'Content-Type',
     'X-CSRFToken',
     'Set-Cookie',
 ]
+
+# Allow cookies to be sent cross-origin
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 CSRF TRUSTED ORIGINS (FIXED)
