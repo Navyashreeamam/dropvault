@@ -346,6 +346,7 @@ def api_check_auth(request):
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: GOOGLE OAUTH
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def api_google_login(request):
     if request.method == "OPTIONS":
@@ -360,63 +361,116 @@ def api_google_login(request):
         if not code:
             return JsonResponse({'success': False, 'error': 'Code required'}, status=400)
         
+        # ✅ CHECK: These must be set in Render environment variables!
         client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
         client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
         
-        if not client_id or not client_secret:
-            logger.error("Google OAuth not configured")
-            return JsonResponse({'success': False, 'error': 'Google OAuth not configured'}, status=501)
+        logger.info(f"🔐 Google OAuth - Client ID exists: {bool(client_id)}")
+        logger.info(f"🔐 Google OAuth - Client Secret exists: {bool(client_secret)}")
         
+        if not client_id or not client_secret:
+            logger.error("❌ Google OAuth credentials not configured!")
+            return JsonResponse({
+                'success': False, 
+                'error': 'Google OAuth not configured. Please contact admin.'
+            }, status=501)
+        
+        # Determine redirect URI based on origin
         origin = request.META.get('HTTP_ORIGIN', '')
-        redirect_uri = 'http://localhost:3000/google-callback' if 'localhost' in origin else 'https://dropvault-frontend-1.onrender.com/google-callback'
+        if 'localhost' in origin or '127.0.0.1' in origin:
+            redirect_uri = 'http://localhost:3000/google-callback'
+        else:
+            redirect_uri = 'https://dropvault-frontend-1.onrender.com/google-callback'
+        
+        logger.info(f"🔐 Using redirect_uri: {redirect_uri}")
         
         # Exchange code for token
         token_resp = http_requests.post('https://oauth2.googleapis.com/token', data={
-            'code': code, 'client_id': client_id, 'client_secret': client_secret,
-            'redirect_uri': redirect_uri, 'grant_type': 'authorization_code'
+            'code': code,
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code'
         }, timeout=10)
         
+        logger.info(f"🔐 Token response status: {token_resp.status_code}")
+        
         if token_resp.status_code != 200:
-            return JsonResponse({'success': False, 'error': 'Google auth failed'}, status=401)
+            logger.error(f"❌ Token exchange failed: {token_resp.text}")
+            return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=401)
         
         access_token = token_resp.json().get('access_token')
         
-        # Get user info
-        user_resp = http_requests.get('https://www.googleapis.com/oauth2/v2/userinfo',
-            headers={'Authorization': f'Bearer {access_token}'}, timeout=10)
+        if not access_token:
+            return JsonResponse({'success': False, 'error': 'No access token received'}, status=401)
+        
+        # Get user info from Google
+        user_resp = http_requests.get(
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            headers={'Authorization': f'Bearer {access_token}'},
+            timeout=10
+        )
         
         if user_resp.status_code != 200:
+            logger.error(f"❌ User info failed: {user_resp.text}")
             return JsonResponse({'success': False, 'error': 'Failed to get user info'}, status=401)
         
         google_user = user_resp.json()
         email = google_user.get('email')
         name = google_user.get('name', '')
         
+        if not email:
+            return JsonResponse({'success': False, 'error': 'No email from Google'}, status=400)
+        
+        logger.info(f"🔐 Google user email: {email}")
+        
         # Find or create user
         try:
             user = User.objects.get(email=email)
+            logger.info(f"✅ Found existing user: {email}")
         except User.DoesNotExist:
             username = email.split('@')[0]
+            counter = 1
             while User.objects.filter(username=username).exists():
-                username = f"{username}1"
-            user = User.objects.create(username=username, email=email, first_name=name.split()[0] if name else '')
+                username = f"{email.split('@')[0]}{counter}"
+                counter += 1
+            
+            user = User.objects.create(
+                username=username,
+                email=email,
+                first_name=name.split()[0] if name else '',
+                last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else ''
+            )
             user.set_unusable_password()
             user.save()
             UserProfile.objects.get_or_create(user=user)
+            logger.info(f"✅ Created new user: {email}")
         
+        # Login and create token
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
-        logger.info(f"✅ Google OAuth: {email}")
+        logger.info(f"✅ Google OAuth successful: {email}")
         
         return JsonResponse({
-            'success': True, 'token': token.key,
-            'user': {'id': user.id, 'email': user.email, 'name': f"{user.first_name}".strip()}
+            'success': True,
+            'token': token.key,
+            'sessionid': request.session.session_key,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+            }
         })
+        
+    except http_requests.Timeout:
+        logger.error("❌ Google OAuth timeout")
+        return JsonResponse({'success': False, 'error': 'Request timed out'}, status=504)
     except Exception as e:
-        logger.error(f"Google OAuth error: {e}")
-        return JsonResponse({'success': False, 'error': 'Google auth failed'}, status=500)
-
+        logger.error(f"❌ Google OAuth error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
 
 # ═══════════════════════════════════════════════════════════
 # 🔌 OTHER API ENDPOINTS
