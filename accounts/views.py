@@ -434,81 +434,111 @@ def api_signup(request):
         }, status=500)
 
 
-
-# accounts/views.py
-
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def api_login(request):
-    """Handle user login"""
+    """Handle user login - email verification is optional"""
     if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
+        return JsonResponse({'status': 'ok'})
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Login attempt for: {email}")
+        if not email or not password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email and password are required'
+            }, status=400)
         
         # Find user
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            logger.warning(f"User not found: {email}")
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
             }, status=401)
         
         # Authenticate
-        user = authenticate(request, username=user.username, password=password)
+        auth_user = authenticate(request, username=user.username, password=password)
         
-        if user:
-            # ✅ CRITICAL - Login to create session
-            login(request, user)
+        if auth_user:
+            login(request, auth_user)
             
-            logger.info(f"Login successful for: {email}")
-            logger.info(f"Session key: {request.session.session_key}")
+            # Check email verification status (but don't block login)
+            profile = getattr(auth_user, 'userprofile', None)
+            email_verified = profile.email_verified if profile else False
             
-            # ✅ Create response with proper headers
-            response_data = {
+            return JsonResponse({
                 'success': True,
-                'token': 'session-based-auth',
+                'token': request.session.session_key or 'session-based',
+                'sessionid': request.session.session_key,
                 'user': {
-                    'id': user.id,
-                    'email': user.email,
-                    'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                    'username': user.username,
+                    'id': auth_user.id,
+                    'email': auth_user.email,
+                    'name': f"{auth_user.first_name} {auth_user.last_name}".strip() or auth_user.username,
+                    'username': auth_user.username,
+                    'email_verified': email_verified,  # Just inform, don't block
                 }
-            }
-            
-            response = JsonResponse(response_data)
-            response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-            response["Access-Control-Allow-Credentials"] = "true"
-            
-            return response
+            })
         else:
-            logger.warning(f"Invalid password for: {email}")
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
             }, status=401)
             
-    except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Login error: {str(e)}", exc_info=True)
+    except json.JSONDecodeError:
         return JsonResponse({
             'success': False,
-            'error': 'Login failed'
+            'error': 'Invalid JSON data'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': 'Login failed. Please try again.'
         }, status=500)
 
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def api_google_login(request):
+    """
+    Handle Google OAuth login
+    Currently returns proper error - needs Google OAuth setup
+    """
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+    
+    try:
+        data = json.loads(request.body)
+        code = data.get('code')
+        credential = data.get('credential')
+        
+        logger.info(f"Google login attempt received")
+        
+        # TODO: Implement Google OAuth
+        # For now, return a clear error message
+        return JsonResponse({
+            'success': False,
+            'error': 'Google login is not yet configured. Please use email/password login.',
+            'message': 'Google OAuth requires backend configuration. Contact administrator.'
+        }, status=501)
+        
+    except Exception as e:
+        logger.error(f"Google login error: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': 'Google authentication failed',
+            'message': str(e)
+        }, status=500)
 
 
 @csrf_exempt

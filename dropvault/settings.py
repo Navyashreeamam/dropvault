@@ -317,17 +317,24 @@ ALLOWED_HOSTS = [
 # ═══════════════════════════════════════════════════════════
 # 🌍 CORS CONFIGURATION (CRITICAL FOR SESSION AUTH)
 # ═══════════════════════════════════════════════════════════
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://dropvault-frontend-1.onrender.com",  # ✅ Your frontend
-    "https://dropvaultnew-frontend.onrender.com/",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://dropvaultnew-frontend.onrender.com",
 ]
 
-# ✅ CRITICAL - Must be True for session cookies
+# Allow all Render subdomains
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.onrender\.com$",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
-# ✅ CRITICAL - Allow session cookie headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -338,7 +345,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
-    'cookie',  # ✅ ADD THIS
+    'cookie',
 ]
 
 CORS_ALLOW_METHODS = [
@@ -350,8 +357,12 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# ✅ CRITICAL - Expose credentials
-CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
+# Expose headers to frontend
+CORS_EXPOSE_HEADERS = [
+    'Content-Type',
+    'X-CSRFToken',
+    'Set-Cookie',
+]
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 CSRF TRUSTED ORIGINS (FIXED)
