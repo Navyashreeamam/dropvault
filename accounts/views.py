@@ -24,10 +24,6 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from .models import UserProfile, LoginAttempt
 from .utils import verify_token, send_verification_email
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
-from rest_framework import status
 from rest_framework import status
 from django.contrib.auth import logout
 from django.db import models
@@ -619,48 +615,105 @@ def api_dashboard(request):
         }, status=500)
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
+# ═══════════════════════════════════════════════════════════
+# 👤 API USER PROFILE (FIXED - Remove DRF decorators)
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
 def api_user_profile(request):
-    """
-    Get current user profile
-    GET /api/user/
-    """
-    user = request.user
+    """Get current user profile"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
     
-    return Response({
-        'success': True,
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'date_joined': user.date_joined.isoformat(),
-            'is_verified': user.is_active,  # or your custom field
-        }
-    })
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def api_logout(request):
-    """
-    Logout user
-    POST /api/logout/
-    """
+    if request.method != "GET":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    logger.info(f"👤 Profile request")
+    logger.info(f"   User: {request.user}")
+    logger.info(f"   Authenticated: {request.user.is_authenticated}")
+    logger.info(f"   Session key: {request.session.session_key}")
+    
+    if not request.user.is_authenticated:
+        logger.warning("❌ Profile: Not authenticated")
+        response = JsonResponse({
+            'success': False,
+            'error': 'Not authenticated'
+        }, status=401)
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        return response
+    
     try:
+        user = request.user
+        response_data = {
+            'success': True,
+            'data': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'username': user.username,
+            }
+        }
+        
+        response = JsonResponse(response_data)
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        
+        logger.info(f"✅ Profile data sent for: {user.email}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"💥 Profile error: {str(e)}", exc_info=True)
+        response = JsonResponse({
+            'success': False,
+            'error': 'Failed to fetch profile'
+        }, status=500)
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+# ═══════════════════════════════════════════════════════════
+# 🚪 API LOGOUT (FIXED - Remove DRF decorators)
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_logout(request):
+    """Logout user"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        logger.info(f"🚪 Logout request from: {request.user}")
         logout(request)
-        return Response({
+        logger.info("✅ User logged out successfully")
+        
+        response = JsonResponse({
             'success': True,
             'message': 'Logged out successfully'
         })
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
+        
     except Exception as e:
-        return Response({
+        logger.error(f"💥 Logout error: {str(e)}", exc_info=True)
+        response = JsonResponse({
             'success': False,
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+            'error': 'Logout failed'
+        }, status=500)
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        return response
 
 # ═══════════════════════════════════════════════════════════
 # ⚙️ SETTINGS - UPDATE PROFILE
@@ -797,28 +850,40 @@ def api_preferences(request):
             'error': str(e)
         }, status=500)
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
+# ═══════════════════════════════════════════════════════════
+# ✅ API CHECK AUTH (FIXED - Remove DRF decorators)
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
 def api_check_auth(request):
-    """
-    Check if user is authenticated
-    GET /api/auth/check/
-    """
+    """Check if user is authenticated"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+    
+    logger.info(f"🔍 Auth check - User: {request.user}, Authenticated: {request.user.is_authenticated}")
+    
     if request.user.is_authenticated:
-        return Response({
+        response_data = {
             'authenticated': True,
             'user': {
                 'id': request.user.id,
                 'email': request.user.email,
-                'username': request.user.username,
+                'name': f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username,
             }
-        })
+        }
     else:
-        return Response({
-            'authenticated': False,
-            'user': None
-        })
-
+        response_data = {
+            'authenticated': False
+        }
+    
+    response = JsonResponse(response_data)
+    response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
+    response["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
 
 # Helper function
 def format_file_size(size_bytes):
