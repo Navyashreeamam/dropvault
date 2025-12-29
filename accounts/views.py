@@ -3,40 +3,65 @@
 import re
 import secrets
 import json
+import logging
+import os
+
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, get_user_model
-from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.core.cache import cache
-from django.core.mail import send_mail, EmailMultiAlternatives
+from django.core.mail import send_mail
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.template.loader import render_to_string
+from django.db.models import Sum
+from django.contrib.auth import update_session_auth_hash
+
 from django_otp import match_token
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from .models import UserProfile, LoginAttempt
 from .utils import verify_token, send_verification_email
-
-from rest_framework import status
-from django.contrib.auth import logout
-from django.db import models
 from files.models import File
-from django.contrib.auth import update_session_auth_hash
-import logging
+
+# Setup logger
 logger = logging.getLogger(__name__)
-from django.contrib.auth.hashers import make_password
-
-
 
 # Get the User model
 User = get_user_model()
+
+# ═══════════════════════════════════════════════════════════
+# 🔧 HELPER: Get allowed frontend origins
+# ═══════════════════════════════════════════════════════════
+ALLOWED_ORIGINS = [
+    "https://dropvaultnew-frontend.onrender.com",
+    "https://dropvault-frontend-1.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+
+def get_cors_origin(request):
+    """Get the origin from request and validate it"""
+    origin = request.META.get('HTTP_ORIGIN', '')
+    if origin in ALLOWED_ORIGINS:
+        return origin
+    # Default to the main frontend
+    return "https://dropvaultnew-frontend.onrender.com"
+
+def add_cors_headers(response, request):
+    """Add CORS headers to response"""
+    origin = get_cors_origin(request)
+    response["Access-Control-Allow-Origin"] = origin
+    response["Access-Control-Allow-Credentials"] = "true"
+    response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRFToken"
+    response["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    return response
 
 
 # ═══════════════════════════════════════════════════════════
@@ -48,41 +73,12 @@ def home(request):
         return redirect('dashboard')
     return render(request, 'home.html')
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 GOOGLE OAUTH (PLACEHOLDER - Implement if needed)
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_google_login(request):
-    """Handle Google OAuth login (placeholder)"""
-    if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
-    
-    try:
-        data = json.loads(request.body)
-        code = data.get('code')
-        
-        # TODO: Implement Google OAuth
-        logger.info(f"Google login attempt with code: {code[:10]}...")
-        
-        return JsonResponse({
-            'success': False,
-            'error': 'Google OAuth not yet implemented on backend'
-        }, status=501)
-        
-    except Exception as e:
-        logger.error(f"Google login error: {str(e)}")
-        return JsonResponse({
-            'success': False,
-            'error': 'Google login failed'
-        }, status=500)
-    
+
 # ═══════════════════════════════════════════════════════════
 # 📝 WEB SIGNUP VIEW (HTML Form)
 # ═══════════════════════════════════════════════════════════
 def signup_view(request):
-    """Web-based signup - renders HTML form and handles form submission"""
-    
+    """Web-based signup - renders HTML form"""
     if request.user.is_authenticated:
         return redirect('dashboard')
     
@@ -110,19 +106,16 @@ def signup_view(request):
         messages.error(request, "Passwords don't match.")
         return render(request, 'signup.html', form_data)
     
-    # Validate email format
     try:
         validate_email(email)
     except ValidationError:
         messages.error(request, "Invalid email format.")
         return render(request, 'signup.html', form_data)
     
-    # Check if user exists
     if User.objects.filter(email__iexact=email).exists():
-        messages.error(request, "An account with this email already exists. Please sign in.")
+        messages.error(request, "An account with this email already exists.")
         return render(request, 'signup.html', form_data)
     
-    # Validate password strength
     try:
         validate_password(password)
     except ValidationError as e:
@@ -130,7 +123,6 @@ def signup_view(request):
             messages.error(request, error)
         return render(request, 'signup.html', form_data)
     
-    # Create user
     try:
         # Generate unique username
         base_username = email.split('@')[0]
@@ -140,7 +132,6 @@ def signup_view(request):
             username = f"{base_username}_{counter}"
             counter += 1
         
-        # Create user
         user = User.objects.create_user(
             username=username,
             email=email,
@@ -149,19 +140,15 @@ def signup_view(request):
             is_active=True
         )
         
-        # Create profile
-        profile, created = UserProfile.objects.get_or_create(user=user)
+        UserProfile.objects.get_or_create(user=user)
         
-        # Send verification email
         try:
             send_verification_email(user)
-            messages.info(request, "Verification email sent! Please check your inbox.")
+            messages.info(request, "Verification email sent!")
         except Exception as e:
-            print(f"⚠️ Email send error: {e}")
+            logger.warning(f"Email send error: {e}")
         
-        # Log user in
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-        
         messages.success(request, "Account created successfully!")
         return redirect('dashboard')
         
@@ -174,71 +161,64 @@ def signup_view(request):
 # 🔐 WEB LOGIN VIEW (HTML Form)
 # ═══════════════════════════════════════════════════════════
 def login_view(request):
-    """Web-based login - renders HTML form and handles authentication"""
-    
+    """Web-based login"""
     if request.user.is_authenticated:
         return redirect('dashboard')
     
     if request.method == 'GET':
         return render(request, 'login.html')
     
-    # POST request
     email = request.POST.get('email', '').strip().lower()
     password = request.POST.get('password', '').strip()
     
-    # Validate inputs
     if not email or not password:
         messages.error(request, "Email and password are required.")
         return render(request, 'login.html', {'email': email})
     
-    # Find user by email
     try:
         user = User.objects.get(email__iexact=email)
     except User.DoesNotExist:
-        messages.error(request, "No account found with this email. Please sign up.")
+        messages.error(request, "No account found with this email.")
         return render(request, 'login.html', {'email': email})
     
-    # Authenticate
     auth_user = authenticate(request, username=user.username, password=password)
-    if auth_user is not None:
-        # Login
+    if auth_user:
         login(request, auth_user)
         
-        # Check email verification (for web, redirect to verify page)
         profile = getattr(auth_user, 'userprofile', None)
         if profile and not profile.email_verified:
             try:
                 send_verification_email(auth_user)
-            except Exception:
+            except:
                 pass
             return redirect('verify_email_prompt')
         
-        messages.success(request, f"Welcome back, {auth_user.first_name or auth_user.email}!")
+        messages.success(request, f"Welcome back!")
         return redirect('dashboard')
     else:
-        messages.error(request, "Invalid password. Please try again.")
+        messages.error(request, "Invalid password.")
         return render(request, 'login.html', {'email': email})
 
 
 # ═══════════════════════════════════════════════════════════
-# 🚪 LOGOUT VIEW
+# 🚪 WEB LOGOUT VIEW
 # ═══════════════════════════════════════════════════════════
 @login_required
 def logout_view(request):
-    """Logout user"""
+    """Logout user (web)"""
     if request.method == 'POST':
         logout(request)
-        messages.success(request, "You have been logged out successfully.")
+        messages.success(request, "Logged out successfully.")
         return redirect('home')
     return render(request, 'logout_confirm.html')
 
 
 # ═══════════════════════════════════════════════════════════
-# 📊 DASHBOARD VIEW
+# 📊 WEB DASHBOARD VIEW
 # ═══════════════════════════════════════════════════════════
 @login_required
 def dashboard(request):
-    """Main dashboard - requires authentication"""
+    """Main dashboard page"""
     return render(request, 'dashboard.html')
 
 
@@ -246,7 +226,7 @@ def dashboard(request):
 # 📧 EMAIL VERIFICATION VIEWS
 # ═══════════════════════════════════════════════════════════
 def verify_email(request, token):
-    """Verify email using token from email link"""
+    """Verify email using token"""
     if not token:
         messages.error(request, "No verification token provided.")
         return redirect('home')
@@ -279,34 +259,25 @@ def verify_email_prompt(request):
         return redirect('dashboard')
     
     user_email = getattr(request.user, 'email', '').strip()
-    if not user_email:
-        messages.error(request, "No email associated with your account.")
-        return render(request, 'verify_prompt.html')
-    
-    # Check if email service is configured
-    import os
     email_configured = bool(os.environ.get('RESEND_API_KEY', '').strip())
     
     if request.method == 'POST':
         if not email_configured:
-            messages.error(request, "Email service is not configured. Please contact support.")
+            messages.error(request, "Email service is not configured.")
             return redirect('verify_email_prompt')
         
         try:
-            # Send synchronously to get real status
             success = send_verification_email(request.user, async_send=False)
             if success:
-                messages.success(request, f"Verification email sent to {user_email}. Check your inbox and spam folder.")
+                messages.success(request, f"Verification email sent to {user_email}.")
             else:
-                messages.error(request, "Failed to send verification email. Please try again later.")
+                messages.error(request, "Failed to send verification email.")
         except Exception as e:
             messages.error(request, f"Error sending email: {str(e)}")
         return redirect('verify_email_prompt')
     
-    context = {
-        'email_configured': email_configured,
-    }
-    return render(request, 'verify_prompt.html', context)
+    return render(request, 'verify_prompt.html', {'email_configured': email_configured})
+
 
 # ═══════════════════════════════════════════════════════════
 # 🔒 MFA VIEWS
@@ -322,14 +293,13 @@ def setup_mfa(request):
     
     if request.method == 'POST':
         token = request.POST.get('token', '').strip()
-        
         if device.verify_token(token):
             device.confirmed = True
             device.save()
             messages.success(request, "MFA enabled successfully!")
             return redirect('dashboard')
         else:
-            messages.error(request, "Invalid code. Please try again.")
+            messages.error(request, "Invalid code.")
     
     return render(request, 'setup_mfa.html', {'device': device})
 
@@ -339,25 +309,23 @@ def otp_verify(request):
     """Verify OTP code"""
     if request.method == 'POST':
         token = request.POST.get('otp', '').strip()
-        
         if match_token(request.user, token):
-            messages.success(request, "OTP verified successfully!")
+            messages.success(request, "OTP verified!")
             return redirect('dashboard')
         else:
             messages.error(request, "Invalid OTP code.")
-    
     return render(request, 'otp_verify.html')
 
 
 @login_required
 def disable_mfa(request):
-    """Disable MFA for user"""
+    """Disable MFA"""
     if request.method == 'POST':
         confirm_token = request.POST.get('confirm_token', '').strip()
         expected = request.user.email[-4:] if request.user.email else ''
         
         if confirm_token != expected:
-            messages.error(request, "Invalid confirmation. MFA not disabled.")
+            messages.error(request, "Invalid confirmation.")
             return render(request, 'disable_mfa.html')
         
         TOTPDevice.objects.filter(user=request.user, confirmed=True).delete()
@@ -367,12 +335,18 @@ def disable_mfa(request):
     return render(request, 'disable_mfa.html')
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: SIGNUP
+# ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
 def api_signup(request):
-    """Handle user registration"""
+    """API endpoint for user registration"""
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
         data = json.loads(request.body)
@@ -380,21 +354,21 @@ def api_signup(request):
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         
-        # Validate
         if not email or not password:
-            return JsonResponse({
+            response = JsonResponse({
                 'success': False,
                 'error': 'Email and password are required'
             }, status=400)
+            return add_cors_headers(response, request)
         
-        # Check if exists
         if User.objects.filter(email=email).exists():
-            return JsonResponse({
+            response = JsonResponse({
                 'success': False,
                 'error': 'Email already registered'
             }, status=400)
+            return add_cors_headers(response, request)
         
-        # Create user
+        # Create username
         username = email.split('@')[0]
         counter = 1
         while User.objects.filter(username=username).exists():
@@ -413,12 +387,18 @@ def api_signup(request):
             password=make_password(password)
         )
         
-        # Auto-login
-        login(request, user)
+        # Create profile
+        UserProfile.objects.get_or_create(user=user)
         
-        return JsonResponse({
+        # Login user
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        
+        logger.info(f"✅ New user registered: {email}")
+        
+        response = JsonResponse({
             'success': True,
-            'token': 'session-based-auth',
+            'token': request.session.session_key or 'session-based',
+            'sessionid': request.session.session_key,
             'user': {
                 'id': user.id,
                 'email': user.email,
@@ -426,52 +406,72 @@ def api_signup(request):
                 'username': user.username,
             }
         })
+        return add_cors_headers(response, request)
         
+    except json.JSONDecodeError:
+        response = JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=400)
+        return add_cors_headers(response, request)
     except Exception as e:
-        return JsonResponse({
+        logger.error(f"Signup error: {e}")
+        response = JsonResponse({
             'success': False,
             'error': 'Registration failed'
         }, status=500)
+        return add_cors_headers(response, request)
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: LOGIN
+# ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
 def api_login(request):
-    """Handle user login - email verification is optional"""
+    """API endpoint for user login"""
     if request.method == "OPTIONS":
-        return JsonResponse({'status': 'ok'})
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         
+        logger.info(f"🔐 Login attempt for: {email}")
+        
         if not email or not password:
-            return JsonResponse({
+            response = JsonResponse({
                 'success': False,
                 'error': 'Email and password are required'
             }, status=400)
+            return add_cors_headers(response, request)
         
-        # Find user
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return JsonResponse({
+            logger.warning(f"❌ Login failed: User not found - {email}")
+            response = JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
             }, status=401)
+            return add_cors_headers(response, request)
         
-        # Authenticate
         auth_user = authenticate(request, username=user.username, password=password)
         
         if auth_user:
             login(request, auth_user)
             
-            # Check email verification status (but don't block login)
             profile = getattr(auth_user, 'userprofile', None)
             email_verified = profile.email_verified if profile else False
             
-            return JsonResponse({
+            logger.info(f"✅ Login successful: {email}")
+            logger.info(f"   Session ID: {request.session.session_key}")
+            
+            response = JsonResponse({
                 'success': True,
                 'token': request.session.session_key or 'session-based',
                 'sessionid': request.session.session_key,
@@ -480,70 +480,257 @@ def api_login(request):
                     'email': auth_user.email,
                     'name': f"{auth_user.first_name} {auth_user.last_name}".strip() or auth_user.username,
                     'username': auth_user.username,
-                    'email_verified': email_verified,  # Just inform, don't block
+                    'email_verified': email_verified,
                 }
             })
+            return add_cors_headers(response, request)
         else:
-            return JsonResponse({
+            logger.warning(f"❌ Login failed: Wrong password - {email}")
+            response = JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
             }, status=401)
+            return add_cors_headers(response, request)
             
     except json.JSONDecodeError:
-        return JsonResponse({
+        response = JsonResponse({
             'success': False,
             'error': 'Invalid JSON data'
         }, status=400)
+        return add_cors_headers(response, request)
     except Exception as e:
         logger.error(f"Login error: {e}")
-        return JsonResponse({
+        response = JsonResponse({
             'success': False,
-            'error': 'Login failed. Please try again.'
+            'error': 'Login failed'
         }, status=500)
+        return add_cors_headers(response, request)
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: LOGOUT
+# ═══════════════════════════════════════════════════════════
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_google_login(request):
-    """
-    Handle Google OAuth login
-    Currently returns proper error - needs Google OAuth setup
-    """
-    # Handle CORS preflight
+def api_logout(request):
+    """API endpoint for logout"""
     if request.method == "OPTIONS":
         response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "*"
-        response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type"
-        return response
+        return add_cors_headers(response, request)
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
-        data = json.loads(request.body)
-        code = data.get('code')
-        credential = data.get('credential')
+        logger.info(f"🚪 Logout request from: {request.user}")
+        logout(request)
         
-        logger.info(f"Google login attempt received")
-        
-        # TODO: Implement Google OAuth
-        # For now, return a clear error message
-        return JsonResponse({
-            'success': False,
-            'error': 'Google login is not yet configured. Please use email/password login.',
-            'message': 'Google OAuth requires backend configuration. Contact administrator.'
-        }, status=501)
+        response = JsonResponse({
+            'success': True,
+            'message': 'Logged out successfully'
+        })
+        return add_cors_headers(response, request)
         
     except Exception as e:
-        logger.error(f"Google login error: {str(e)}")
-        return JsonResponse({
+        logger.error(f"Logout error: {e}")
+        response = JsonResponse({
             'success': False,
-            'error': 'Google authentication failed',
-            'message': str(e)
+            'error': 'Logout failed'
         }, status=500)
+        return add_cors_headers(response, request)
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: DASHBOARD
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_dashboard(request):
+    """API endpoint for dashboard data"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method != "GET":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    logger.info(f"📊 Dashboard request")
+    logger.info(f"   User: {request.user}")
+    logger.info(f"   Authenticated: {request.user.is_authenticated}")
+    logger.info(f"   Session: {request.session.session_key}")
+    
+    if not request.user.is_authenticated:
+        logger.warning("❌ Dashboard: Not authenticated")
+        response = JsonResponse({
+            'success': False,
+            'error': 'Not authenticated'
+        }, status=401)
+        return add_cors_headers(response, request)
+    
+    try:
+        user = request.user
+        
+        # Get file statistics
+        total_files = File.objects.filter(user=user, deleted=False).count()
+        total_trash = File.objects.filter(user=user, deleted=True).count()
+        
+        # Get recent files
+        recent_files = File.objects.filter(
+            user=user, 
+            deleted=False
+        ).order_by('-uploaded_at')[:5]
+        
+        recent_files_data = []
+        for f in recent_files:
+            recent_files_data.append({
+                'id': f.id,
+                'name': f.original_name,
+                'filename': f.original_name,
+                'size': f.size,
+                'uploaded_at': f.uploaded_at.isoformat(),
+            })
+        
+        # Calculate storage
+        total_storage = File.objects.filter(
+            user=user, 
+            deleted=False
+        ).aggregate(total=Sum('size'))['total'] or 0
+        
+        logger.info(f"✅ Dashboard data for: {user.email}")
+        
+        response = JsonResponse({
+            'success': True,
+            'data': {
+                'storageUsed': total_storage,
+                'storageTotal': 10 * 1024 * 1024 * 1024,  # 10GB
+                'totalFiles': total_files,
+                'trashFiles': total_trash,
+                'recentFiles': recent_files_data,
+            },
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+            }
+        })
+        return add_cors_headers(response, request)
+        
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        response = JsonResponse({
+            'success': False,
+            'error': 'Failed to load dashboard'
+        }, status=500)
+        return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: USER PROFILE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_user_profile(request):
+    """API endpoint for user profile"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method != "GET":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    logger.info(f"👤 Profile request - Auth: {request.user.is_authenticated}")
+    
+    if not request.user.is_authenticated:
+        response = JsonResponse({
+            'success': False,
+            'error': 'Not authenticated'
+        }, status=401)
+        return add_cors_headers(response, request)
+    
+    try:
+        user = request.user
+        profile = getattr(user, 'userprofile', None)
+        
+        response = JsonResponse({
+            'success': True,
+            'data': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'username': user.username,
+                'email_verified': profile.email_verified if profile else False,
+                'date_joined': user.date_joined.isoformat(),
+            }
+        })
+        return add_cors_headers(response, request)
+        
+    except Exception as e:
+        logger.error(f"Profile error: {e}")
+        response = JsonResponse({
+            'success': False,
+            'error': 'Failed to fetch profile'
+        }, status=500)
+        return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: CHECK AUTH
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_check_auth(request):
+    """API endpoint to check authentication status"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    logger.info(f"🔍 Auth check - User: {request.user}, Auth: {request.user.is_authenticated}")
+    
+    if request.user.is_authenticated:
+        response_data = {
+            'authenticated': True,
+            'user': {
+                'id': request.user.id,
+                'email': request.user.email,
+                'name': f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username,
+            }
+        }
+    else:
+        response_data = {
+            'authenticated': False,
+            'user': None
+        }
+    
+    response = JsonResponse(response_data)
+    return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: GOOGLE LOGIN (Placeholder)
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_google_login(request):
+    """API endpoint for Google OAuth (not yet implemented)"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    logger.info("🔐 Google login attempt - not implemented")
+    
+    response = JsonResponse({
+        'success': False,
+        'error': 'Google login is not yet configured. Please use email/password login.',
+        'message': 'Contact administrator to enable Google OAuth.'
+    }, status=501)
+    return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: VERIFY EMAIL
+# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_verify_email(request):
     """API endpoint for email verification"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
     if request.method == 'GET':
         token = request.GET.get('token')
     else:
@@ -554,7 +741,8 @@ def api_verify_email(request):
             token = request.POST.get('token')
     
     if not token:
-        return JsonResponse({'error': 'Token is required.'}, status=400)
+        response = JsonResponse({'error': 'Token is required'}, status=400)
+        return add_cors_headers(response, request)
     
     try:
         profile = UserProfile.objects.get(verification_token=token)
@@ -562,13 +750,160 @@ def api_verify_email(request):
         profile.verification_token = ''
         profile.save()
         
-        return JsonResponse({
-            'status': 'success',
-            'message': 'Email verified successfully.'
+        response = JsonResponse({
+            'success': True,
+            'message': 'Email verified successfully'
         })
+        return add_cors_headers(response, request)
         
     except UserProfile.DoesNotExist:
-        return JsonResponse({'error': 'Invalid or expired token.'}, status=400)
+        response = JsonResponse({'error': 'Invalid or expired token'}, status=400)
+        return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: UPDATE PROFILE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_update_profile(request):
+    """API endpoint to update user profile"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method not in ["PUT", "PATCH"]:
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    if not request.user.is_authenticated:
+        response = JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+        return add_cors_headers(response, request)
+    
+    try:
+        data = json.loads(request.body)
+        user = request.user
+        
+        if 'name' in data:
+            parts = data['name'].split()
+            user.first_name = parts[0] if parts else ''
+            user.last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        
+        if 'email' in data and data['email'] != user.email:
+            if User.objects.filter(email=data['email']).exclude(pk=user.pk).exists():
+                response = JsonResponse({
+                    'success': False,
+                    'error': 'Email already in use'
+                }, status=400)
+                return add_cors_headers(response, request)
+            user.email = data['email']
+        
+        user.save()
+        
+        response = JsonResponse({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'data': {
+                'id': user.id,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email': user.email,
+            }
+        })
+        return add_cors_headers(response, request)
+        
+    except Exception as e:
+        response = JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: CHANGE PASSWORD
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_change_password(request):
+    """API endpoint to change password"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if request.method not in ["PUT", "PATCH"]:
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    if not request.user.is_authenticated:
+        response = JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+        return add_cors_headers(response, request)
+    
+    try:
+        data = json.loads(request.body)
+        user = request.user
+        
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        
+        if not user.check_password(current_password):
+            response = JsonResponse({
+                'success': False,
+                'error': 'Current password is incorrect'
+            }, status=400)
+            return add_cors_headers(response, request)
+        
+        if len(new_password) < 8:
+            response = JsonResponse({
+                'success': False,
+                'error': 'New password must be at least 8 characters'
+            }, status=400)
+            return add_cors_headers(response, request)
+        
+        user.set_password(new_password)
+        user.save()
+        update_session_auth_hash(request, user)
+        
+        response = JsonResponse({
+            'success': True,
+            'message': 'Password updated successfully'
+        })
+        return add_cors_headers(response, request)
+        
+    except Exception as e:
+        response = JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return add_cors_headers(response, request)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 API: PREFERENCES
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def api_preferences(request):
+    """API endpoint for user preferences"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    if not request.user.is_authenticated:
+        response = JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+        return add_cors_headers(response, request)
+    
+    if request.method == 'GET':
+        response = JsonResponse({
+            'success': True,
+            'data': {
+                'emailNotifications': True,
+                'twoFactorAuth': False,
+                'darkMode': False,
+            }
+        })
+        return add_cors_headers(response, request)
+    
+    try:
+        data = json.loads(request.body)
+        response = JsonResponse({
+            'success': True,
+            'message': 'Preferences saved successfully',
+            'data': data
+        })
+        return add_cors_headers(response, request)
+        
+    except Exception as e:
+        response = JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return add_cors_headers(response, request)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -576,7 +911,7 @@ def api_verify_email(request):
 # ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def test_email(request):
-    """Test email configuration - superuser only"""
+    """Test email configuration"""
     if not request.user.is_authenticated or not request.user.is_superuser:
         return HttpResponse("Access denied.", status=403)
     
@@ -593,329 +928,6 @@ def test_email(request):
         return HttpResponse(f"Email failed: {str(e)}", status=500)
 
 
-# accounts/views.py
-
-@csrf_exempt
-@require_http_methods(["GET", "OPTIONS"])
-def api_dashboard(request):
-    """Get dashboard stats"""
-    if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
-    
-    # ✅ ADD LOGGING
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"Dashboard request - User authenticated: {request.user.is_authenticated}")
-    logger.info(f"User: {request.user}")
-    logger.info(f"Session key: {request.session.session_key}")
-    
-    if not request.user.is_authenticated:
-        logger.warning("User not authenticated for dashboard")
-        return JsonResponse({
-            'success': False,
-            'error': 'Not authenticated'
-        }, status=401)  # ✅ Changed from 403 to 401
-    
-    try:
-        # TODO: Calculate real stats from database
-        response_data = {
-            'success': True,
-            'data': {
-                'storageUsed': 2560,  # MB
-                'storageTotal': 10240,  # MB
-                'totalFiles': 0,
-                'sharedFiles': 0,
-                'recentFiles': [],
-            }
-        }
-        
-        response = JsonResponse(response_data)
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
-        
-    except Exception as e:
-        logger.error(f"Dashboard error: {str(e)}", exc_info=True)
-        return JsonResponse({
-            'success': False,
-            'error': 'Failed to load dashboard'
-        }, status=500)
-
-
-# ═══════════════════════════════════════════════════════════
-# 👤 API USER PROFILE (FIXED - Remove DRF decorators)
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-def api_user_profile(request):
-    """Get current user profile"""
-    if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        response["Access-Control-Allow-Headers"] = "Content-Type"
-        return response
-    
-    if request.method != "GET":
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
-    
-    logger.info(f"👤 Profile request")
-    logger.info(f"   User: {request.user}")
-    logger.info(f"   Authenticated: {request.user.is_authenticated}")
-    logger.info(f"   Session key: {request.session.session_key}")
-    
-    if not request.user.is_authenticated:
-        logger.warning("❌ Profile: Not authenticated")
-        response = JsonResponse({
-            'success': False,
-            'error': 'Not authenticated'
-        }, status=401)
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
-    
-    try:
-        user = request.user
-        response_data = {
-            'success': True,
-            'data': {
-                'id': user.id,
-                'email': user.email,
-                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'username': user.username,
-            }
-        }
-        
-        response = JsonResponse(response_data)
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        
-        logger.info(f"✅ Profile data sent for: {user.email}")
-        return response
-        
-    except Exception as e:
-        logger.error(f"💥 Profile error: {str(e)}", exc_info=True)
-        response = JsonResponse({
-            'success': False,
-            'error': 'Failed to fetch profile'
-        }, status=500)
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-# ═══════════════════════════════════════════════════════════
-# 🚪 API LOGOUT (FIXED - Remove DRF decorators)
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-def api_logout(request):
-    """Logout user"""
-    if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        response["Access-Control-Allow-Headers"] = "Content-Type"
-        return response
-    
-    if request.method != "POST":
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
-    
-    try:
-        logger.info(f"🚪 Logout request from: {request.user}")
-        logout(request)
-        logger.info("✅ User logged out successfully")
-        
-        response = JsonResponse({
-            'success': True,
-            'message': 'Logged out successfully'
-        })
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"💥 Logout error: {str(e)}", exc_info=True)
-        response = JsonResponse({
-            'success': False,
-            'error': 'Logout failed'
-        }, status=500)
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-# ═══════════════════════════════════════════════════════════
-# ⚙️ SETTINGS - UPDATE PROFILE
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-@require_http_methods(["PUT", "PATCH"])
-def api_update_profile(request):
-    """Update user profile"""
-    if not request.user.is_authenticated:
-        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
-    
-    try:
-        data = json.loads(request.body)
-        user = request.user
-        
-        # Update fields
-        if 'name' in data:
-            user.first_name = data['name'].split()[0] if data['name'] else ''
-            user.last_name = ' '.join(data['name'].split()[1:]) if len(data['name'].split()) > 1 else ''
-        
-        if 'email' in data and data['email'] != user.email:
-            # Check if email already exists
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            if User.objects.filter(email=data['email']).exclude(pk=user.pk).exists():
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Email already in use'
-                }, status=400)
-            user.email = data['email']
-        
-        user.save()
-        
-        return JsonResponse({
-            'success': True,
-            'message': 'Profile updated successfully',
-            'data': {
-                'id': user.id,
-                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'email': user.email,
-            }
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-# ═══════════════════════════════════════════════════════════
-# ⚙️ SETTINGS - CHANGE PASSWORD
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-@require_http_methods(["PUT", "PATCH"])
-def api_change_password(request):
-    """Change user password"""
-    if not request.user.is_authenticated:
-        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
-    
-    try:
-        data = json.loads(request.body)
-        user = request.user
-        
-        current_password = data.get('current_password')
-        new_password = data.get('new_password')
-        
-        # Verify current password
-        if not user.check_password(current_password):
-            return JsonResponse({
-                'success': False,
-                'error': 'Current password is incorrect'
-            }, status=400)
-        
-        # Validate new password
-        if len(new_password) < 8:
-            return JsonResponse({
-                'success': False,
-                'error': 'New password must be at least 8 characters'
-            }, status=400)
-        
-        # Set new password
-        user.set_password(new_password)
-        user.save()
-        
-        # Keep user logged in
-        update_session_auth_hash(request, user)
-        
-        return JsonResponse({
-            'success': True,
-            'message': 'Password updated successfully'
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-# ═══════════════════════════════════════════════════════════
-# ⚙️ SETTINGS - PREFERENCES
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-@require_http_methods(["GET", "PUT", "PATCH"])
-def api_preferences(request):
-    """Get or update user preferences"""
-    if not request.user.is_authenticated:
-        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
-    
-    if request.method == 'GET':
-        # Return default preferences (you can store these in a UserProfile model)
-        return JsonResponse({
-            'success': True,
-            'data': {
-                'emailNotifications': True,
-                'twoFactorAuth': False,
-                'darkMode': False,
-            }
-        })
-    
-    try:
-        data = json.loads(request.body)
-        # TODO: Save preferences to database
-        
-        return JsonResponse({
-            'success': True,
-            'message': 'Preferences saved successfully',
-            'data': data
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-# ═══════════════════════════════════════════════════════════
-# ✅ API CHECK AUTH (FIXED - Remove DRF decorators)
-# ═══════════════════════════════════════════════════════════
-@csrf_exempt
-def api_check_auth(request):
-    """Check if user is authenticated"""
-    if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'ok'})
-        response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-        response["Access-Control-Allow-Credentials"] = "true"
-        response["Access-Control-Allow-Headers"] = "Content-Type"
-        return response
-    
-    logger.info(f"🔍 Auth check - User: {request.user}, Authenticated: {request.user.is_authenticated}")
-    
-    if request.user.is_authenticated:
-        response_data = {
-            'authenticated': True,
-            'user': {
-                'id': request.user.id,
-                'email': request.user.email,
-                'name': f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username,
-            }
-        }
-    else:
-        response_data = {
-            'authenticated': False
-        }
-    
-    response = JsonResponse(response_data)
-    response["Access-Control-Allow-Origin"] = "https://dropvault-frontend-1.onrender.com"
-    response["Access-Control-Allow-Credentials"] = "true"
-    
-    return response
-
-# Helper function
 def format_file_size(size_bytes):
     """Convert bytes to human readable format"""
     if size_bytes == 0:
@@ -931,7 +943,6 @@ def format_file_size(size_bytes):
     
     return f"{size:.2f} {units[unit_index]}"
 
-#####
 
 @login_required
 def upload_test(request):
