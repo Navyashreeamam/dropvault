@@ -30,11 +30,54 @@ from .models import UserProfile, LoginAttempt
 from .utils import verify_token, send_verification_email
 from files.models import File
 
+from rest_framework.authtoken.models import Token
+from django.contrib.sessions.models import Session
+
 # Setup logger
 logger = logging.getLogger(__name__)
 
 # Get the User model
 User = get_user_model()
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔐 TOKEN AUTHENTICATION HELPER
+# ═══════════════════════════════════════════════════════════
+
+def authenticate_request(request):
+    """
+    Authenticate request using either:
+    1. Token in Authorization header
+    2. Session ID in X-Session-ID header
+    3. Session cookie
+    """
+    # Already authenticated via session
+    if request.user.is_authenticated:
+        return request.user
+    
+    # Try Token authentication
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    if auth_header.startswith('Token '):
+        token_key = auth_header.split(' ')[1]
+        try:
+            token = Token.objects.get(key=token_key)
+            return token.user
+        except Token.DoesNotExist:
+            pass
+    
+    # Try session ID from header
+    session_id = request.META.get('HTTP_X_SESSION_ID', '')
+    if session_id:
+        try:
+            session = Session.objects.get(session_key=session_id)
+            session_data = session.get_decoded()
+            user_id = session_data.get('_auth_user_id')
+            if user_id:
+                return User.objects.get(pk=user_id)
+        except (Session.DoesNotExist, User.DoesNotExist):
+            pass
+    
+    return None
 
 # ═══════════════════════════════════════════════════════════
 # 🔧 HELPER: Get allowed frontend origins
@@ -62,6 +105,8 @@ def add_cors_headers(response, request):
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRFToken"
     response["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     return response
+
+
 
 
 # ═══════════════════════════════════════════════════════════
@@ -616,6 +661,7 @@ def api_signup(request):
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: LOGIN
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def api_login(request):
     """API endpoint for user login"""
@@ -655,15 +701,20 @@ def api_login(request):
         if auth_user:
             login(request, auth_user)
             
+            # ✅ CREATE OR GET TOKEN
+            from rest_framework.authtoken.models import Token
+            token, created = Token.objects.get_or_create(user=auth_user)
+            
             profile = getattr(auth_user, 'userprofile', None)
             email_verified = profile.email_verified if profile else False
             
             logger.info(f"✅ Login successful: {email}")
-            logger.info(f"   Session ID: {request.session.session_key}")
+            logger.info(f"   Token: {token.key[:10]}...")
+            logger.info(f"   Session: {request.session.session_key}")
             
             response = JsonResponse({
                 'success': True,
-                'token': request.session.session_key or 'session-based',
+                'token': token.key,  # ✅ Send actual token
                 'sessionid': request.session.session_key,
                 'user': {
                     'id': auth_user.id,
@@ -695,7 +746,6 @@ def api_login(request):
             'error': 'Login failed'
         }, status=500)
         return add_cors_headers(response, request)
-
 
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: LOGOUT
@@ -732,6 +782,7 @@ def api_logout(request):
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: DASHBOARD
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def api_dashboard(request):
     """API endpoint for dashboard data"""
@@ -742,12 +793,15 @@ def api_dashboard(request):
     if request.method != "GET":
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
-    logger.info(f"📊 Dashboard request")
-    logger.info(f"   User: {request.user}")
-    logger.info(f"   Authenticated: {request.user.is_authenticated}")
-    logger.info(f"   Session: {request.session.session_key}")
+    # ✅ USE HELPER TO AUTHENTICATE
+    user = authenticate_request(request)
     
-    if not request.user.is_authenticated:
+    logger.info(f"📊 Dashboard request")
+    logger.info(f"   Session user: {request.user}")
+    logger.info(f"   Token user: {user}")
+    logger.info(f"   Is authenticated: {user is not None}")
+    
+    if not user:
         logger.warning("❌ Dashboard: Not authenticated")
         response = JsonResponse({
             'success': False,
@@ -756,8 +810,6 @@ def api_dashboard(request):
         return add_cors_headers(response, request)
     
     try:
-        user = request.user
-        
         # Get file statistics
         total_files = File.objects.filter(user=user, deleted=False).count()
         total_trash = File.objects.filter(user=user, deleted=True).count()
@@ -779,6 +831,7 @@ def api_dashboard(request):
             })
         
         # Calculate storage
+        from django.db.models import Sum
         total_storage = File.objects.filter(
             user=user, 
             deleted=False
@@ -794,6 +847,7 @@ def api_dashboard(request):
                 'totalFiles': total_files,
                 'trashFiles': total_trash,
                 'recentFiles': recent_files_data,
+                'sharedCount': 0,
             },
             'user': {
                 'id': user.id,
@@ -805,16 +859,18 @@ def api_dashboard(request):
         
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
+        import traceback
+        traceback.print_exc()
         response = JsonResponse({
             'success': False,
             'error': 'Failed to load dashboard'
         }, status=500)
         return add_cors_headers(response, request)
 
-
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: USER PROFILE
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def api_user_profile(request):
     """API endpoint for user profile"""
@@ -822,12 +878,9 @@ def api_user_profile(request):
         response = JsonResponse({'status': 'ok'})
         return add_cors_headers(response, request)
     
-    if request.method != "GET":
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    user = authenticate_request(request)
     
-    logger.info(f"👤 Profile request - Auth: {request.user.is_authenticated}")
-    
-    if not request.user.is_authenticated:
+    if not user:
         response = JsonResponse({
             'success': False,
             'error': 'Not authenticated'
@@ -835,7 +888,6 @@ def api_user_profile(request):
         return add_cors_headers(response, request)
     
     try:
-        user = request.user
         profile = getattr(user, 'userprofile', None)
         
         response = JsonResponse({
@@ -859,6 +911,35 @@ def api_user_profile(request):
         }, status=500)
         return add_cors_headers(response, request)
 
+
+@csrf_exempt
+def api_check_auth(request):
+    """API endpoint to check authentication status"""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'ok'})
+        return add_cors_headers(response, request)
+    
+    user = authenticate_request(request)
+    
+    logger.info(f"🔍 Auth check - User: {user}")
+    
+    if user:
+        response_data = {
+            'authenticated': True,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+            }
+        }
+    else:
+        response_data = {
+            'authenticated': False,
+            'user': None
+        }
+    
+    response = JsonResponse(response_data)
+    return add_cors_headers(response, request)
 
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: CHECK AUTH

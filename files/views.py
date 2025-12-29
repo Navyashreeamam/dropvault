@@ -21,6 +21,41 @@ from django.middleware.csrf import get_token
 from .models import File, Trash, FileLog, SharedLink
 
 
+
+# At the top of files/views.py, add:
+from rest_framework.authtoken.models import Token
+from django.contrib.sessions.models import Session
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+def authenticate_request(request):
+    """Authenticate request using token or session"""
+    if request.user.is_authenticated:
+        return request.user
+    
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    if auth_header.startswith('Token '):
+        token_key = auth_header.split(' ')[1]
+        try:
+            token = Token.objects.get(key=token_key)
+            return token.user
+        except Token.DoesNotExist:
+            pass
+    
+    session_id = request.META.get('HTTP_X_SESSION_ID', '')
+    if session_id:
+        try:
+            session = Session.objects.get(session_key=session_id)
+            session_data = session.get_decoded()
+            user_id = session_data.get('_auth_user_id')
+            if user_id:
+                return User.objects.get(pk=user_id)
+        except:
+            pass
+    
+    return None
+
 # ═══════════════════════════════════════════════════════════
 # 🔧 LOGGING - Force flush to console
 # ═══════════════════════════════════════════════════════════
@@ -194,41 +229,38 @@ def upload_file(request):
 # ═══════════════════════════════════════════════════════════
 # 📂 LIST FILES
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def list_files(request):
     """List user's active files"""
-    
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
-    log_info(f"📂 LIST FILES - User: {request.user}, Auth: {request.user.is_authenticated}")
+    user = authenticate_request(request)
     
-    try:
-        if not request.user.is_authenticated:
-            return auth_error_response()
-        
-        files = File.objects.filter(
-            user=request.user,
-            deleted=False
-        ).order_by('-uploaded_at')
-        
-        file_list = [{
-            'id': f.id,
-            'filename': f.original_name,
-            'original_name': f.original_name,
-            'size': f.size,
-            'uploaded_at': f.uploaded_at.isoformat()
-        } for f in files]
-        
-        log_info(f"📂 Returning {len(file_list)} files")
-        
-        response = JsonResponse(file_list, safe=False)
-        response['Content-Type'] = 'application/json'
-        return response
-        
-    except Exception as e:
-        log_error(f"📂 Error: {e}")
-        return JsonResponse([], safe=False)
+    log_info(f"📂 LIST FILES - User: {user}")
+    
+    if not user:
+        return auth_error_response()
+    
+    files = File.objects.filter(
+        user=user,
+        deleted=False
+    ).order_by('-uploaded_at')
+    
+    file_list = [{
+        'id': f.id,
+        'filename': f.original_name,
+        'original_name': f.original_name,
+        'size': f.size,
+        'uploaded_at': f.uploaded_at.isoformat()
+    } for f in files]
+    
+    log_info(f"📂 Returning {len(file_list)} files")
+    
+    response = JsonResponse(file_list, safe=False)
+    response['Content-Type'] = 'application/json'
+    return response
 
 
 # ═══════════════════════════════════════════════════════════
