@@ -1,10 +1,10 @@
 # accounts/views.py
-# SIMPLIFIED VERSION - Django CORS middleware handles headers
+# COMPLETE WORKING VERSION
 
 import os
 import json
 import logging
-import requests as http_requests
+import requests
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -15,7 +15,6 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Sum
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.sessions.models import Session
 
 from django_otp import match_token
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -33,20 +32,17 @@ User = get_user_model()
 # ═══════════════════════════════════════════════════════════
 def authenticate_request(request):
     """Authenticate request using Token or Session"""
-    # Session auth
     if request.user.is_authenticated:
         return request.user
     
-    # Token auth
     auth_header = request.META.get('HTTP_AUTHORIZATION', '')
     if auth_header.startswith('Token '):
         token_key = auth_header.split(' ')[1]
         try:
             token = Token.objects.get(key=token_key)
-            logger.info(f"✅ Token auth: {token.user.email}")
             return token.user
         except Token.DoesNotExist:
-            logger.warning(f"❌ Invalid token")
+            pass
     
     return None
 
@@ -240,7 +236,7 @@ def api_login(request):
         login(request, auth_user)
         token, _ = Token.objects.get_or_create(user=auth_user)
         
-        logger.info(f"✅ Login OK: {email}, Token: {token.key[:10]}...")
+        logger.info(f"✅ Login OK: {email}")
         
         return JsonResponse({
             'success': True,
@@ -344,13 +340,14 @@ def api_check_auth(request):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔌 API: GOOGLE OAUTH
+# 🔌 API: GOOGLE OAUTH - WORKING VERSION
 # ═══════════════════════════════════════════════════════════
-
 @csrf_exempt
 def api_google_login(request):
+    """Handle Google OAuth login"""
     if request.method == "OPTIONS":
         return JsonResponse({})
+    
     if request.method != "POST":
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
@@ -359,75 +356,93 @@ def api_google_login(request):
         code = data.get('code')
         
         if not code:
-            return JsonResponse({'success': False, 'error': 'Code required'}, status=400)
+            logger.error("❌ No authorization code provided")
+            return JsonResponse({'success': False, 'error': 'Authorization code required'}, status=400)
         
-        # ✅ CHECK: These must be set in Render environment variables!
-        client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
-        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+        # Get credentials from environment
+        client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '').strip()
         
-        logger.info(f"🔐 Google OAuth - Client ID exists: {bool(client_id)}")
-        logger.info(f"🔐 Google OAuth - Client Secret exists: {bool(client_secret)}")
+        logger.info("=" * 50)
+        logger.info("🔐 GOOGLE OAUTH REQUEST")
+        logger.info(f"   Client ID exists: {bool(client_id)}")
+        logger.info(f"   Client Secret exists: {bool(client_secret)}")
         
         if not client_id or not client_secret:
             logger.error("❌ Google OAuth credentials not configured!")
             return JsonResponse({
                 'success': False, 
-                'error': 'Google OAuth not configured. Please contact admin.'
+                'error': 'Google OAuth is not configured. Please contact admin.'
             }, status=501)
         
         # Determine redirect URI based on origin
         origin = request.META.get('HTTP_ORIGIN', '')
+        logger.info(f"   Origin: {origin}")
+        
         if 'localhost' in origin or '127.0.0.1' in origin:
             redirect_uri = 'http://localhost:3000/google-callback'
         else:
             redirect_uri = 'https://dropvault-frontend-1.onrender.com/google-callback'
         
-        logger.info(f"🔐 Using redirect_uri: {redirect_uri}")
+        logger.info(f"   Redirect URI: {redirect_uri}")
         
         # Exchange code for token
-        token_resp = http_requests.post('https://oauth2.googleapis.com/token', data={
-            'code': code,
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'redirect_uri': redirect_uri,
-            'grant_type': 'authorization_code'
-        }, timeout=10)
+        logger.info("🔐 Exchanging code for token...")
         
-        logger.info(f"🔐 Token response status: {token_resp.status_code}")
+        token_response = requests.post(
+            'https://oauth2.googleapis.com/token',
+            data={
+                'code': code,
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'redirect_uri': redirect_uri,
+                'grant_type': 'authorization_code'
+            },
+            timeout=15
+        )
         
-        if token_resp.status_code != 200:
-            logger.error(f"❌ Token exchange failed: {token_resp.text}")
-            return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=401)
+        logger.info(f"   Token response status: {token_response.status_code}")
         
-        access_token = token_resp.json().get('access_token')
+        if token_response.status_code != 200:
+            logger.error(f"❌ Token exchange failed: {token_response.text}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to authenticate with Google'
+            }, status=401)
+        
+        token_data = token_response.json()
+        access_token = token_data.get('access_token')
         
         if not access_token:
-            return JsonResponse({'success': False, 'error': 'No access token received'}, status=401)
+            logger.error("❌ No access token received")
+            return JsonResponse({'success': False, 'error': 'No access token'}, status=401)
+        
+        logger.info("✅ Got access token, fetching user info...")
         
         # Get user info from Google
-        user_resp = http_requests.get(
+        user_response = requests.get(
             'https://www.googleapis.com/oauth2/v2/userinfo',
             headers={'Authorization': f'Bearer {access_token}'},
             timeout=10
         )
         
-        if user_resp.status_code != 200:
-            logger.error(f"❌ User info failed: {user_resp.text}")
+        if user_response.status_code != 200:
+            logger.error(f"❌ User info failed: {user_response.text}")
             return JsonResponse({'success': False, 'error': 'Failed to get user info'}, status=401)
         
-        google_user = user_resp.json()
+        google_user = user_response.json()
         email = google_user.get('email')
         name = google_user.get('name', '')
+        
+        logger.info(f"   Google email: {email}")
         
         if not email:
             return JsonResponse({'success': False, 'error': 'No email from Google'}, status=400)
         
-        logger.info(f"🔐 Google user email: {email}")
-        
         # Find or create user
         try:
             user = User.objects.get(email=email)
-            logger.info(f"✅ Found existing user: {email}")
+            logger.info(f"   Found existing user")
         except User.DoesNotExist:
             username = email.split('@')[0]
             counter = 1
@@ -435,22 +450,25 @@ def api_google_login(request):
                 username = f"{email.split('@')[0]}{counter}"
                 counter += 1
             
+            name_parts = name.split() if name else [username]
             user = User.objects.create(
                 username=username,
                 email=email,
-                first_name=name.split()[0] if name else '',
-                last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else ''
+                first_name=name_parts[0] if name_parts else '',
+                last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
+                is_active=True
             )
             user.set_unusable_password()
             user.save()
             UserProfile.objects.get_or_create(user=user)
-            logger.info(f"✅ Created new user: {email}")
+            logger.info(f"   Created new user")
         
-        # Login and create token
+        # Login user
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
-        logger.info(f"✅ Google OAuth successful: {email}")
+        logger.info(f"✅ Google OAuth SUCCESS: {email}")
+        logger.info("=" * 50)
         
         return JsonResponse({
             'success': True,
@@ -463,14 +481,18 @@ def api_google_login(request):
             }
         })
         
-    except http_requests.Timeout:
+    except requests.Timeout:
         logger.error("❌ Google OAuth timeout")
         return JsonResponse({'success': False, 'error': 'Request timed out'}, status=504)
+    except json.JSONDecodeError:
+        logger.error("❌ Invalid JSON")
+        return JsonResponse({'success': False, 'error': 'Invalid request'}, status=400)
     except Exception as e:
         logger.error(f"❌ Google OAuth error: {e}")
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
+
 
 # ═══════════════════════════════════════════════════════════
 # 🔌 OTHER API ENDPOINTS
