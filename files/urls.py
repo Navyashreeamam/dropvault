@@ -10,6 +10,8 @@ urlpatterns = [
     path('trash/', views.trash_list, name='trash_list'),
     path('restore/<int:file_id>/', views.restore_file, name='restore_file'),
     
+    path('shared/', views.get_shared_files, name='get_shared_files'),
+
     # Debug
     path('debug/files/', views.debug_files, name='debug_files'),
     

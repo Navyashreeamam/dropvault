@@ -59,7 +59,8 @@ urlpatterns = [
     # ═══════════════════════════════════════════════════════════
     path('api/share/<int:file_id>/', sharingviews.create_share_link, name='api_share'),
     path('api/share/<int:file_id>/email/', sharingviews.share_via_email, name='api_share_email'),
-    
+    path('api/shared/', file_views.get_shared_files, name='api_shared_files'),
+
     # Web routes
     path('files/', include('files.urls')),
     path('accounts/', include('accounts.urls')),

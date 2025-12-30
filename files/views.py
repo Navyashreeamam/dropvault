@@ -230,9 +230,26 @@ def upload_file(request):
 # 📂 LIST FILES
 # ═══════════════════════════════════════════════════════════
 
+
+def format_file_size(size_bytes):
+    """Convert bytes to human-readable format"""
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    return f"{size:.2f} {units[unit_index]}"
+
+
 @csrf_exempt
 def list_files(request):
-    """List user's active files"""
+    """List user's active files with shared links"""
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
@@ -243,25 +260,104 @@ def list_files(request):
     if not user:
         return auth_error_response()
     
+    # Get user's files
     files = File.objects.filter(
         user=user,
         deleted=False
     ).order_by('-uploaded_at')
     
-    file_list = [{
-        'id': f.id,
-        'filename': f.original_name,
-        'original_name': f.original_name,
-        'size': f.size,
-        'uploaded_at': f.uploaded_at.isoformat()
-    } for f in files]
+    # Get shared links
+    shared_links = SharedLink.objects.filter(
+        owner=user,
+        is_active=True
+    ).select_related('file')
     
-    log_info(f"📂 Returning {len(file_list)} files")
+    # Format file list
+    file_list = []
+    for f in files:
+        file_list.append({
+            'id': f.id,
+            'filename': f.original_name,
+            'original_name': f.original_name,
+            'size': format_file_size(f.size),  # ✅ Formatted string
+            'size_bytes': f.size,  # ✅ Also include raw bytes
+            'uploaded_at': f.uploaded_at.isoformat()
+        })
     
-    response = JsonResponse(file_list, safe=False)
+    # Format shared links
+    shared_list = []
+    for link in shared_links:
+        if not link.is_expired():
+            shared_list.append({
+                'id': link.id,
+                'file_id': link.file.id,
+                'filename': link.file.original_name,
+                'slug': link.slug,
+                'share_url': f"{request.build_absolute_uri('/').rstrip('/')}/s/{link.slug}/",
+                'download_count': link.download_count,
+                'max_downloads': link.max_downloads,
+                'view_count': link.view_count,
+                'created_at': link.created_at.isoformat(),
+                'expires_at': link.expires_at.isoformat() if link.expires_at else None,
+            })
+    
+    log_info(f"📂 Returning {len(file_list)} files, {len(shared_list)} shared links")
+    
+    # ✅ FIXED: Return correct structure
+    response = JsonResponse({
+        'your_files': file_list,
+        'shared_files': shared_list
+    })
     response['Content-Type'] = 'application/json'
     return response
 
+
+# ═══════════════════════════════════════════════════════════
+# 🔗 GET SHARED FILES - NEW ENDPOINT
+# ═══════════════════════════════════════════════════════════
+
+@csrf_exempt
+def get_shared_files(request):
+    """Get all active shared links for the user"""
+    if request.method == "OPTIONS":
+        return json_response({'status': 'ok'})
+    
+    user = authenticate_request(request)
+    
+    log_info(f"🔗 GET SHARED - User: {user}")
+    
+    if not user:
+        return auth_error_response()
+    
+    shared_links = SharedLink.objects.filter(
+        owner=user,
+        is_active=True
+    ).select_related('file').order_by('-created_at')
+    
+    shared_list = []
+    for link in shared_links:
+        if not link.is_expired():
+            site_url = request.build_absolute_uri('/').rstrip('/')
+            shared_list.append({
+                'id': link.id,
+                'file_id': link.file.id,
+                'filename': link.file.original_name,
+                'file_size': format_file_size(link.file.size),
+                'slug': link.slug,
+                'share_url': f"{site_url}/s/{link.slug}/",
+                'download_count': link.download_count,
+                'max_downloads': link.max_downloads,
+                'view_count': link.view_count,
+                'created_at': link.created_at.isoformat(),
+                'expires_at': link.expires_at.isoformat() if link.expires_at else None,
+                'downloads_remaining': link.max_downloads - link.download_count,
+            })
+    
+    log_info(f"🔗 Returning {len(shared_list)} shared links")
+    
+    response = JsonResponse(shared_list, safe=False)
+    response['Content-Type'] = 'application/json'
+    return response
 
 # ═══════════════════════════════════════════════════════════
 # 🗑️ DELETE FILE
