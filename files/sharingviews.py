@@ -313,79 +313,109 @@ def shared_file_view(request, slug, action=None):
     })
 
 
+# ═══════════════════════════════════════════════════════════
+# 📥 DOWNLOAD SHARED FILE - FIXED VERSION
+# ═══════════════════════════════════════════════════════════
+
+@csrf_exempt
 def download_shared_file(request, slug):
     """Download a shared file"""
+    log_info(f"📥 DOWNLOAD SHARED - Slug: {slug}")
+    
     try:
         # Get the shared link
-        shared_link = get_object_or_404(SharedLink, slug=slug)
+        link = SharedLink.objects.select_related('file').get(slug=slug, is_active=True)
         
-        # Check if link is expired
-        if shared_link.expires_at and shared_link.expires_at < timezone.now():
+        # Check if expired
+        if link.is_expired():
+            log_error(f"📥 Link expired: {slug}")
+            link.is_active = False
+            link.save()
             return JsonResponse({
                 'error': 'This link has expired'
             }, status=410)
         
         # Check if link is still active
-        if not shared_link.is_active:
+        if not link.is_active:
+            log_error(f"📥 Link inactive: {slug}")
             return JsonResponse({
                 'error': 'This link is no longer active'
             }, status=403)
         
         # Get the file
-        file_obj = shared_link.file
+        file_obj = link.file
+        
+        # Check if file is deleted
+        if file_obj.deleted:
+            log_error(f"📥 File deleted: {file_obj.original_name}")
+            return JsonResponse({
+                'error': 'File is no longer available'
+            }, status=404)
+        
+        # Activate expiry on first download if not set
+        if not link.first_accessed_at:
+            link.first_accessed_at = timezone.now()
+            link.expires_at = timezone.now() + timedelta(hours=24)
+            link.save(update_fields=['first_accessed_at', 'expires_at'])
+        
+        # Check download limit
+        if link.download_count >= link.max_downloads:
+            log_error(f"📥 Download limit reached: {slug}")
+            return JsonResponse({
+                'error': 'Download limit reached'
+            }, status=403)
+        
+        # Increment download count
+        link.download_count += 1
+        link.save(update_fields=['download_count'])
+        
+        log_info(f"📥 Download #{link.download_count}: {file_obj.original_name}")
         
         # Check if file exists
         if not file_obj.file:
+            log_error(f"📥 File record exists but no file attached")
             return JsonResponse({
                 'error': 'File not found in database',
                 'details': 'The file record exists but no file is attached'
             }, status=404)
         
-        # Get the file path
-        file_path = file_obj.file.path
-        
-        # Check if file exists on disk
-        if not os.path.exists(file_path):
+        # Try to open the file
+        try:
+            file_obj.file.open('rb')
+        except Exception as e:
+            log_error(f"📥 Cannot open file: {e}")
             return JsonResponse({
-                'error': 'File not found on server',
-                'details': f'File was uploaded but no longer exists (Render ephemeral storage)',
-                'solution': 'Configure AWS S3 or Cloudinary for persistent storage'
+                'error': 'File not available',
+                'details': 'File may have been deleted from storage (Render uses ephemeral storage)',
+                'solution': 'Please ask the owner to re-upload the file'
             }, status=404)
         
-        # Increment download count
-        shared_link.download_count += 1
-        shared_link.save()
-        
         # Get file mime type
-        content_type, _ = mimetypes.guess_type(file_obj.original_filename)
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(file_obj.original_name)
         if not content_type:
             content_type = 'application/octet-stream'
         
-        # Open and return the file
-        file_handle = open(file_path, 'rb')
-        response = FileResponse(file_handle, content_type=content_type)
-        response['Content-Disposition'] = f'attachment; filename="{file_obj.original_filename}"'
-        response['Content-Length'] = os.path.getsize(file_path)
+        # Return the file
+        response = FileResponse(
+            file_obj.file.open('rb'),
+            as_attachment=True,
+            filename=file_obj.original_name,
+            content_type=content_type
+        )
         
+        log_info(f"📥 ✅ Download started: {file_obj.original_name}")
         return response
         
     except SharedLink.DoesNotExist:
+        log_error(f"📥 Invalid slug: {slug}")
         return JsonResponse({
             'error': 'Invalid or expired share link',
             'slug': slug
         }, status=404)
         
-    except FileNotFoundError as e:
-        return JsonResponse({
-            'error': 'File not found on disk',
-            'details': str(e),
-            'note': 'Render uses ephemeral storage - files are deleted on restart'
-        }, status=404)
-        
     except Exception as e:
-        # Log the error
-        print(f"Download error: {str(e)}")
-        print(f"Error type: {type(e).__name__}")
+        log_error(f"📥 Download error: {e}")
         import traceback
         traceback.print_exc()
         
