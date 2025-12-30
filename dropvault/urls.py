@@ -69,7 +69,6 @@ urlpatterns = [
     path('s/<slug:slug>/', sharingviews.shared_file_view, name='shared_file'),
     path('s/<slug:slug>/download/', sharingviews.download_shared_file, name='shared_file_download'),
 
-    path('api/download/<int:file_id>/', file_views.download_file, name='api_download'),
 ]
 
 if settings.DEBUG:
