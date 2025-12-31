@@ -186,6 +186,20 @@ def share_via_email(request, file_id):
                 'error': 'Valid email address required'
             }, status=400)
         
+        # ✅ RESEND LIMITATION CHECK
+        # With test API key, can only send to registered email
+        RESEND_VERIFIED_EMAIL = os.environ.get('RESEND_VERIFIED_EMAIL', 'navyashreeamam@gmail.com')
+        
+        if recipient_email.lower() != RESEND_VERIFIED_EMAIL.lower():
+            log_error(f"📧 Resend limitation: Can only send to {RESEND_VERIFIED_EMAIL}")
+            return json_response({
+                'status': 'error',
+                'error': 'Email sharing temporarily restricted',
+                'message': f'For testing, emails can only be sent to {RESEND_VERIFIED_EMAIL}. To enable sending to any email, please verify a domain at resend.com/domains',
+                'email_sent': False,
+                'allowed_email': RESEND_VERIFIED_EMAIL
+            }, status=403)
+        
         # Create share link
         slug = generate_slug()
         SharedLink.objects.create(
@@ -227,7 +241,7 @@ def share_via_email(request, file_id):
                 'email_sent': False,
                 'error': error_msg,
                 'message': f'Share link created but email failed: {error_msg}'
-            })
+            }, status=200)
         
     except File.DoesNotExist:
         return json_response({'error': 'File not found'}, status=404)
