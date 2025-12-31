@@ -165,7 +165,7 @@ def share_via_email(request, file_id):
         if request.body:
             try:
                 data = json.loads(request.body.decode('utf-8'))
-                recipient_email = data.get('recipient_email', '').strip()
+                recipient_email = data.get('recipient_email', '').strip().lower()
                 message = data.get('message', '').strip()
                 log_info(f"📧 Parsed JSON body")
             except json.JSONDecodeError as e:
@@ -173,12 +173,11 @@ def share_via_email(request, file_id):
         
         # Fallback to POST data
         if not recipient_email:
-            recipient_email = request.POST.get('recipient_email', '').strip()
+            recipient_email = request.POST.get('recipient_email', '').strip().lower()
             message = request.POST.get('message', '').strip()
             log_info(f"📧 Using POST data")
         
         log_info(f"📧 Recipient: {recipient_email}")
-        log_info(f"📧 Message: {message[:50] if message else 'None'}")
         
         if not recipient_email or '@' not in recipient_email:
             return json_response({
@@ -186,18 +185,18 @@ def share_via_email(request, file_id):
                 'error': 'Valid email address required'
             }, status=400)
         
-        # ✅ RESEND LIMITATION CHECK
-        # With test API key, can only send to registered email
-        RESEND_VERIFIED_EMAIL = os.environ.get('RESEND_VERIFIED_EMAIL', 'navyashreeamam@gmail.com')
+        # ✅ RESEND TEST MODE RESTRICTION
+        ALLOWED_TEST_EMAIL = os.environ.get('RESEND_VERIFIED_EMAIL', 'navyashreeamam@gmail.com').strip().lower()
         
-        if recipient_email.lower() != RESEND_VERIFIED_EMAIL.lower():
-            log_error(f"📧 Resend limitation: Can only send to {RESEND_VERIFIED_EMAIL}")
+        if recipient_email != ALLOWED_TEST_EMAIL:
+            log_error(f"📧 Email restricted: {recipient_email} (only {ALLOWED_TEST_EMAIL} allowed in test mode)")
             return json_response({
                 'status': 'error',
-                'error': 'Email sharing temporarily restricted',
-                'message': f'For testing, emails can only be sent to {RESEND_VERIFIED_EMAIL}. To enable sending to any email, please verify a domain at resend.com/domains',
-                'email_sent': False,
-                'allowed_email': RESEND_VERIFIED_EMAIL
+                'error': 'Email sharing restricted in test mode',
+                'message': f'Currently, emails can only be sent to: {ALLOWED_TEST_EMAIL}',
+                'details': 'To send to any email, verify a domain at resend.com/domains',
+                'allowed_email': ALLOWED_TEST_EMAIL,
+                'email_sent': False
             }, status=403)
         
         # Create share link
@@ -232,14 +231,14 @@ def share_via_email(request, file_id):
                 'status': 'success',
                 'share_url': share_url,
                 'email_sent': True,
-                'message': f'File shared successfully! Email sent to {recipient_email}'
+                'message': f'File shared! Email sent to {recipient_email}. Check spam folder.'
             })
         else:
             return json_response({
                 'status': 'partial',
                 'share_url': share_url,
                 'email_sent': False,
-                'error': error_msg,
+                'error': error_msg or 'Email sending failed',
                 'message': f'Share link created but email failed: {error_msg}'
             }, status=200)
         

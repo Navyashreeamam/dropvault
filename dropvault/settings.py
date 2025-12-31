@@ -128,6 +128,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     'django.contrib.sites',
+
+    'cloudinary_storage',
+    'cloudinary',
+
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -228,11 +232,7 @@ CSRF_TRUSTED_ORIGINS = [
 # ═══════════════════════════════════════════════════════════
 # 🌍 CORS CONFIGURATION
 # ═══════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════
-# 🌍 CORS CONFIGURATION - COMPLETE FIX
-# ═══════════════════════════════════════════════════════════
 
-# Allowed origins
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -286,14 +286,43 @@ CORS_EXPOSE_HEADERS = [
 CORS_PREFLIGHT_MAX_AGE = 86400
 
 # ═══════════════════════════════════════════════════════════
+# ☁️ CLOUDINARY CONFIGURATION
+# ═══════════════════════════════════════════════════════════
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', ''),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', ''),
+    'SECURE': True,
+}
+
+# Check if Cloudinary is configured
+if all([
+    CLOUDINARY_STORAGE['CLOUD_NAME'],
+    CLOUDINARY_STORAGE['API_KEY'],
+    CLOUDINARY_STORAGE['API_SECRET']
+]):
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+    print(f"✅ Cloudinary enabled: {CLOUDINARY_STORAGE['CLOUD_NAME']}")
+    print(f"   Files will be stored permanently on Cloudinary")
+else:
+    print("⚠️ Cloudinary NOT configured - using local storage")
+    print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
+
+# ═══════════════════════════════════════════════════════════
 # 🗂️ STATIC & MEDIA FILES
 # ═══════════════════════════════════════════════════════════
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Media files configuration
+if CLOUDINARY_STORAGE.get('CLOUD_NAME'):
+    # Using Cloudinary - no local MEDIA_ROOT needed
+    MEDIA_URL = '/media/'
+else:
+    # Using local storage (development)
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
 
 # ═══════════════════════════════════════════════════════════
 # 🔐 SECURITY SETTINGS

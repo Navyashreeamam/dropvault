@@ -4,11 +4,13 @@ cachetools==6.2.2
 certifi==2025.11.12
 cffi==2.0.0
 charset-normalizer==3.4.4
+cloudinary==1.41.0
 colorama==0.4.6
 cryptography==46.0.3
 dj-database-url==3.0.1
 Django==5.1.4
 django-allauth==65.13.1
+django-cloudinary-storage==0.3.0
 django-cors-headers==4.9.0
 django-otp==1.6.3
 django-ratelimit==4.1.0
