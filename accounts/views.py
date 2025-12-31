@@ -271,6 +271,7 @@ def api_logout(request):
 # ═══════════════════════════════════════════════════════════
 # 🔌 API: DASHBOARD
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def api_dashboard(request):
     if request.method == "OPTIONS":
@@ -283,27 +284,63 @@ def api_dashboard(request):
         return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
     
     try:
+        # Import SharedLink here to avoid circular imports
+        from files.models import SharedLink
+        
+        # Count files
         total_files = File.objects.filter(user=user, deleted=False).count()
         total_trash = File.objects.filter(user=user, deleted=True).count()
+        
+        # ✅ FIX: Count shared links (active and not expired)
+        shared_links = SharedLink.objects.filter(owner=user, is_active=True)
+        shared_count = 0
+        for link in shared_links:
+            if not link.is_expired():
+                shared_count += 1
+        
+        # Calculate storage
         total_storage = File.objects.filter(user=user, deleted=False).aggregate(total=Sum('size'))['total'] or 0
         
+        # Get recent files
         recent_files = File.objects.filter(user=user, deleted=False).order_by('-uploaded_at')[:5]
-        recent_data = [{'id': f.id, 'name': f.original_name, 'size': f.size} for f in recent_files]
+        recent_data = [
+            {
+                'id': f.id, 
+                'name': f.original_name,
+                'filename': f.original_name,
+                'size': f.size
+            } for f in recent_files
+        ]
         
-        logger.info(f"✅ Dashboard OK: {user.email}")
+        logger.info(f"✅ Dashboard OK: {user.email} - Files: {total_files}, Shared: {shared_count}")
         
         return JsonResponse({
             'success': True,
             'data': {
                 'storageUsed': total_storage,
-                'storageTotal': 10737418240,
+                'storage_used': total_storage,
+                'storageTotal': 10737418240,  # 10GB
+                'storage_total': 10737418240,
                 'totalFiles': total_files,
+                'total_files': total_files,
                 'trashFiles': total_trash,
+                'trash_files': total_trash,
+                'sharedFiles': shared_count,      # ✅ ADDED
+                'shared_count': shared_count,     # ✅ ADDED (alternative key)
+                'sharedCount': shared_count,      # ✅ ADDED (another alternative)
                 'recentFiles': recent_data,
+                'recent_files': recent_data,
+            },
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
             }
         })
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
