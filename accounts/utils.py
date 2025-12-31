@@ -173,18 +173,19 @@ If you didn't create an account, you can ignore this email.
 
 
 # ═══════════════════════════════════════════════════════════
-# 📧 SEND FILE SHARE EMAIL
+# 📧 SEND FILE SHARE EMAIL - FIXED TO RETURN TUPLE
 # ═══════════════════════════════════════════════════════════
 def send_file_share_email(to_email, from_user, file_name, share_url, message=None):
     """
     Send file sharing notification email
+    Returns: (success: bool, error_message: str or None)
     """
     resend_api_key = get_resend_api_key()
     
     if not resend_api_key:
         logger.warning("No RESEND_API_KEY - cannot send share email")
         print(f"⚠️ Share email skipped (no API key): {to_email}")
-        return False
+        return False, "Email service not configured"
     
     from_name = from_user.first_name or from_user.username or from_user.email
     
@@ -217,7 +218,7 @@ def send_file_share_email(to_email, from_user, file_name, share_url, message=Non
                    style="background-color: #4F46E5; color: white; padding: 14px 30px; 
                           text-decoration: none; border-radius: 5px; display: inline-block;
                           font-weight: bold;">
-                    View File
+                    View & Download File
                 </a>
             </p>
             
@@ -249,11 +250,15 @@ This is an automated message from DropVault.
     """
     
     try:
-        return _send_email_via_resend(to_email, subject, html_content, text_content)
+        success = _send_email_via_resend(to_email, subject, html_content, text_content)
+        if success:
+            return True, None
+        else:
+            return False, "Failed to send email via Resend"
     except Exception as e:
         logger.error(f"Error sending share email: {e}")
         print(f"❌ Error sending share email: {e}")
-        return False
+        return False, str(e)
 
 
 # ═══════════════════════════════════════════════════════════
