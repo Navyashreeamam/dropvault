@@ -4,13 +4,15 @@ import secrets
 import json
 import sys
 import traceback
-from django.http import JsonResponse, FileResponse
+import requests
+from django.http import JsonResponse, FileResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
 from django.utils import timezone
 from datetime import timedelta
 from .models import File, SharedLink
 from django.shortcuts import get_object_or_404
+from django.conf import settings
 import mimetypes
 
 # Import the email function
@@ -48,20 +50,26 @@ def generate_slug():
 
 def get_site_url(request):
     """Get the correct site URL for share links"""
-    # First check environment variable
     site_url = os.environ.get('SITE_URL', '').strip()
     
-    # Auto-detect from Render
     if not site_url or 'localhost' in site_url:
         render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
         if render_host:
             site_url = f'https://{render_host}'
     
-    # Fallback to request
     if not site_url:
         site_url = request.build_absolute_uri('/')[:-1]
     
     return site_url
+
+
+def is_cloudinary_storage():
+    """Check if Cloudinary storage is enabled"""
+    return all([
+        settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'),
+        settings.CLOUDINARY_STORAGE.get('API_KEY'),
+        settings.CLOUDINARY_STORAGE.get('API_SECRET')
+    ])
 
 
 @csrf_exempt
@@ -81,7 +89,6 @@ def create_share_link(request, file_id):
         if file_obj.deleted:
             return json_response({'error': 'Cannot share deleted file'}, status=400)
         
-        # Check existing active link
         existing = SharedLink.objects.filter(
             file=file_obj, owner=request.user, is_active=True
         ).first()
@@ -96,7 +103,6 @@ def create_share_link(request, file_id):
                 'link': share_url
             })
         
-        # Create new link
         slug = generate_slug()
         SharedLink.objects.create(
             file=file_obj,
@@ -126,9 +132,12 @@ def create_share_link(request, file_id):
         return json_response({'error': str(e)}, status=500)
 
 
+# ═══════════════════════════════════════════════════════════
+# 📧 SHARE VIA EMAIL - FIXED (No restriction)
+# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def share_via_email(request, file_id):
-    """Share a file via email"""
+    """Share a file via email - NO RESTRICTION"""
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
@@ -171,7 +180,6 @@ def share_via_email(request, file_id):
             except json.JSONDecodeError as e:
                 log_error(f"📧 JSON decode error: {e}")
         
-        # Fallback to POST data
         if not recipient_email:
             recipient_email = request.POST.get('recipient_email', '').strip().lower()
             message = request.POST.get('message', '').strip()
@@ -185,19 +193,10 @@ def share_via_email(request, file_id):
                 'error': 'Valid email address required'
             }, status=400)
         
-        # ✅ RESEND TEST MODE RESTRICTION
-        ALLOWED_TEST_EMAIL = os.environ.get('RESEND_VERIFIED_EMAIL', 'navyashreeamam@gmail.com').strip().lower()
-        
-        if recipient_email != ALLOWED_TEST_EMAIL:
-            log_error(f"📧 Email restricted: {recipient_email} (only {ALLOWED_TEST_EMAIL} allowed in test mode)")
-            return json_response({
-                'status': 'error',
-                'error': 'Email sharing restricted in test mode',
-                'message': f'Currently, emails can only be sent to: {ALLOWED_TEST_EMAIL}',
-                'details': 'To send to any email, verify a domain at resend.com/domains',
-                'allowed_email': ALLOWED_TEST_EMAIL,
-                'email_sent': False
-            }, status=403)
+        # ✅ REMOVED: Email restriction code
+        # Now allows sending to ANY email address
+        # Note: Resend free tier may still limit emails to verified addresses
+        # To send to any email, verify a domain at https://resend.com/domains
         
         # Create share link
         slug = generate_slug()
@@ -234,12 +233,23 @@ def share_via_email(request, file_id):
                 'message': f'File shared! Email sent to {recipient_email}. Check spam folder.'
             })
         else:
+            # ✅ IMPROVED: Better error message for Resend test mode
+            error_detail = error_msg or 'Email sending failed'
+            
+            # Check if it's a Resend test mode error
+            if 'test' in error_detail.lower() or 'verify' in error_detail.lower():
+                error_detail = (
+                    f"Resend Test Mode: Can only send to verified email. "
+                    f"To send to {recipient_email}, verify a domain at resend.com/domains"
+                )
+            
             return json_response({
                 'status': 'partial',
                 'share_url': share_url,
                 'email_sent': False,
-                'error': error_msg or 'Email sending failed',
-                'message': f'Share link created but email failed: {error_msg}'
+                'error': error_detail,
+                'message': f'Share link created! Copy this link: {share_url}',
+                'note': 'Email failed but you can share the link manually'
             }, status=200)
         
     except File.DoesNotExist:
@@ -274,38 +284,19 @@ def shared_file_view(request, slug, action=None):
     if file_obj.deleted:
         return json_response({'error': 'File is no longer available'}, status=404)
     
-    # Set first access time and expiry
     if not link.first_accessed_at:
         link.first_accessed_at = timezone.now()
         link.expires_at = timezone.now() + timedelta(hours=24)
         link.save()
     
-    # Increment view count
     link.view_count = (link.view_count or 0) + 1
     link.save(update_fields=['view_count'])
     
     # Handle download
     if action == 'download':
-        if link.download_count >= link.max_downloads:
-            return json_response({'error': 'Download limit reached'}, status=403)
-        
-        link.download_count += 1
-        link.save(update_fields=['download_count'])
-        
-        log_info(f"📥 Download #{link.download_count} for {file_obj.original_name}")
-        
-        try:
-            response = FileResponse(
-                file_obj.file.open('rb'),
-                as_attachment=True,
-                filename=file_obj.original_name
-            )
-            return response
-        except Exception as e:
-            log_error(f"📥 Download error: {e}")
-            return json_response({'error': 'Download failed'}, status=500)
+        return download_shared_file(request, slug)
     
-    # Show preview page for HTML requests
+    # Show preview page
     if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
         site_url = get_site_url(request)
         return render(request, 'shared_file.html', {
@@ -315,7 +306,6 @@ def shared_file_view(request, slug, action=None):
             'downloads_remaining': link.max_downloads - link.download_count
         })
     
-    # JSON response for API
     return json_response({
         'file': {
             'name': file_obj.original_name,
@@ -327,12 +317,11 @@ def shared_file_view(request, slug, action=None):
 
 
 # ═══════════════════════════════════════════════════════════
-# 📥 DOWNLOAD SHARED FILE - FIXED VERSION
+# 📥 DOWNLOAD SHARED FILE - FIXED FOR CLOUDINARY
 # ═══════════════════════════════════════════════════════════
-
 @csrf_exempt
 def download_shared_file(request, slug):
-    """Download a shared file"""
+    """Download a shared file - Works with Cloudinary and local storage"""
     log_info(f"📥 DOWNLOAD SHARED - Slug: {slug}")
     
     try:
@@ -342,23 +331,17 @@ def download_shared_file(request, slug):
             log_error(f"📥 Link expired: {slug}")
             link.is_active = False
             link.save()
-            return JsonResponse({
-                'error': 'This link has expired'
-            }, status=410)
+            return JsonResponse({'error': 'This link has expired'}, status=410)
         
         if not link.is_active:
             log_error(f"📥 Link inactive: {slug}")
-            return JsonResponse({
-                'error': 'This link is no longer active'
-            }, status=403)
+            return JsonResponse({'error': 'This link is no longer active'}, status=403)
         
         file_obj = link.file
         
         if file_obj.deleted:
             log_error(f"📥 File deleted: {file_obj.original_name}")
-            return JsonResponse({
-                'error': 'File is no longer available'
-            }, status=404)
+            return JsonResponse({'error': 'File is no longer available'}, status=404)
         
         if not link.first_accessed_at:
             link.first_accessed_at = timezone.now()
@@ -367,61 +350,118 @@ def download_shared_file(request, slug):
         
         if link.download_count >= link.max_downloads:
             log_error(f"📥 Download limit reached: {slug}")
-            return JsonResponse({
-                'error': 'Download limit reached'
-            }, status=403)
+            return JsonResponse({'error': 'Download limit reached'}, status=403)
         
-        link.download_count += 1
-        link.save(update_fields=['download_count'])
-        
-        log_info(f"📥 Download #{link.download_count}: {file_obj.original_name}")
-        
-        # ✅ CRITICAL: Check if file exists
+        # Check if file field exists
         if not file_obj.file:
-            log_error(f"📥 File record exists but no file attached")
+            log_error(f"📥 No file attached to record")
             return JsonResponse({
                 'error': 'File not found',
-                'details': 'The file was not properly uploaded',
-                'solution': '⚠️ RENDER FREE TIER LIMITATION: Files are stored in ephemeral storage and are deleted on every server restart. To fix this, configure AWS S3 or Cloudinary for persistent file storage.'
+                'details': 'The file record exists but no file is attached'
             }, status=404)
         
-        # Try to get file path and check if it exists
+        # ✅ FIXED: Handle both Cloudinary and local storage
         try:
-            file_path = file_obj.file.path
-            if not os.path.exists(file_path):
-                log_error(f"📥 File not found on disk: {file_path}")
-                return JsonResponse({
-                    'error': 'File no longer available',
-                    'details': 'File was uploaded but has been deleted from server storage',
-                    'reason': '⚠️ RENDER FREE TIER uses ephemeral storage - all uploaded files are deleted when the server restarts (usually every 15 minutes of inactivity)',
-                    'solution': 'To keep files permanently, you need to:\n1. Upgrade to Render paid plan with persistent disk\n2. OR configure AWS S3/Cloudinary storage\n3. OR re-upload the file'
-                }, status=404)
+            # Check if using Cloudinary
+            if is_cloudinary_storage():
+                log_info(f"📥 Using Cloudinary storage")
+                
+                # Get the Cloudinary URL
+                try:
+                    file_url = file_obj.file.url
+                    log_info(f"📥 Cloudinary URL: {file_url}")
+                    
+                    # Increment download count BEFORE redirect
+                    link.download_count += 1
+                    link.save(update_fields=['download_count'])
+                    
+                    log_info(f"📥 Download #{link.download_count}: {file_obj.original_name}")
+                    
+                    # Option 1: Redirect to Cloudinary URL (faster, but shows Cloudinary URL)
+                    # from django.shortcuts import redirect
+                    # return redirect(file_url)
+                    
+                    # Option 2: Stream from Cloudinary (hides URL, proper filename)
+                    response = requests.get(file_url, stream=True, timeout=30)
+                    
+                    if response.status_code != 200:
+                        log_error(f"📥 Cloudinary fetch failed: {response.status_code}")
+                        return JsonResponse({
+                            'error': 'File temporarily unavailable',
+                            'details': 'Could not fetch file from storage'
+                        }, status=503)
+                    
+                    # Get content type
+                    content_type = response.headers.get('Content-Type', 'application/octet-stream')
+                    
+                    # Create streaming response
+                    django_response = HttpResponse(
+                        response.iter_content(chunk_size=8192),
+                        content_type=content_type
+                    )
+                    django_response['Content-Disposition'] = f'attachment; filename="{file_obj.original_name}"'
+                    
+                    # Set content length if available
+                    if 'Content-Length' in response.headers:
+                        django_response['Content-Length'] = response.headers['Content-Length']
+                    
+                    log_info(f"📥 ✅ Streaming from Cloudinary: {file_obj.original_name}")
+                    return django_response
+                    
+                except Exception as e:
+                    log_error(f"📥 Cloudinary error: {e}")
+                    return JsonResponse({
+                        'error': 'Download failed',
+                        'details': str(e)
+                    }, status=500)
+            
+            else:
+                # Local storage
+                log_info(f"📥 Using local storage")
+                
+                try:
+                    file_path = file_obj.file.path
+                    
+                    if not os.path.exists(file_path):
+                        log_error(f"📥 File not found on disk: {file_path}")
+                        return JsonResponse({
+                            'error': 'File no longer available',
+                            'details': 'File was deleted from server storage',
+                            'reason': 'Render free tier uses ephemeral storage - files are deleted on restart',
+                            'solution': 'Configure Cloudinary for persistent storage'
+                        }, status=404)
+                    
+                    # Increment download count
+                    link.download_count += 1
+                    link.save(update_fields=['download_count'])
+                    
+                    log_info(f"📥 Download #{link.download_count}: {file_obj.original_name}")
+                    
+                    content_type, _ = mimetypes.guess_type(file_obj.original_name)
+                    if not content_type:
+                        content_type = 'application/octet-stream'
+                    
+                    response = FileResponse(
+                        file_obj.file.open('rb'),
+                        as_attachment=True,
+                        filename=file_obj.original_name,
+                        content_type=content_type
+                    )
+                    
+                    log_info(f"📥 ✅ Download started: {file_obj.original_name}")
+                    return response
+                    
+                except Exception as e:
+                    log_error(f"📥 Local storage error: {e}")
+                    return JsonResponse({
+                        'error': 'Download failed',
+                        'details': str(e)
+                    }, status=500)
+                    
         except Exception as e:
-            log_error(f"📥 Cannot access file: {e}")
+            log_error(f"📥 Storage check error: {e}")
             return JsonResponse({
-                'error': 'File storage error',
-                'details': str(e),
-                'solution': 'Please contact support or re-upload the file'
-            }, status=500)
-        
-        # File exists - proceed with download
-        content_type, _ = mimetypes.guess_type(file_obj.original_name)
-        if not content_type:
-            content_type = 'application/octet-stream'
-        
-        try:
-            response = FileResponse(
-                file_obj.file.open('rb'),
-                as_attachment=True,
-                filename=file_obj.original_name,
-                content_type=content_type
-            )
-            log_info(f"📥 ✅ Download started: {file_obj.original_name}")
-            return response
-        except Exception as e:
-            log_error(f"📥 Download failed: {e}")
-            return JsonResponse({
-                'error': 'Download failed',
+                'error': 'Storage error',
                 'details': str(e)
             }, status=500)
         
@@ -434,56 +474,50 @@ def download_shared_file(request, slug):
         
     except Exception as e:
         log_error(f"📥 Download error: {e}")
-        import traceback
         traceback.print_exc()
-        
         return JsonResponse({
             'error': 'Download failed',
-            'details': str(e),
-            'type': type(e).__name__
+            'details': str(e)
         }, status=500)
-    
 
+
+# ═══════════════════════════════════════════════════════════
+# 🔧 DEBUG ENDPOINTS
+# ═══════════════════════════════════════════════════════════
 def debug_shared_file(request, slug):
     """Debug endpoint to check file status"""
-    from django.conf import settings
-    import os
-    
     try:
         shared_link = get_object_or_404(SharedLink, slug=slug)
         file_obj = shared_link.file
-        
-        # Get file info
-        file_path = file_obj.file.path if file_obj.file else None
-        file_exists = os.path.exists(file_path) if file_path else False
         
         debug_info = {
             'shared_link': {
                 'slug': shared_link.slug,
                 'is_active': shared_link.is_active,
-                'expires_at': shared_link.expires_at,
+                'expires_at': str(shared_link.expires_at) if shared_link.expires_at else None,
                 'download_count': shared_link.download_count,
             },
             'file': {
                 'id': file_obj.id,
-                'original_filename': file_obj.original_filename,
-                'file_field': str(file_obj.file),
-                'file_path': file_path,
-                'file_exists_on_disk': file_exists,
-                'file_size': file_obj.file.size if file_obj.file else None,
+                'original_name': file_obj.original_name,
+                'file_field': str(file_obj.file) if file_obj.file else None,
+                'size': file_obj.size,
             },
-            'settings': {
-                'MEDIA_ROOT': settings.MEDIA_ROOT,
-                'MEDIA_URL': settings.MEDIA_URL,
-            },
-            'server': {
-                'platform': 'Render' if 'render' in request.get_host() else 'Local',
-                'storage_type': 'Ephemeral (files deleted on restart)' if 'render' in request.get_host() else 'Local disk',
+            'storage': {
+                'cloudinary_enabled': is_cloudinary_storage(),
+                'cloudinary_cloud_name': settings.CLOUDINARY_STORAGE.get('CLOUD_NAME', 'Not set'),
             }
         }
         
-        if file_exists and file_path:
-            debug_info['file']['actual_size_on_disk'] = os.path.getsize(file_path)
+        # Check file availability
+        if file_obj.file:
+            try:
+                file_url = file_obj.file.url
+                debug_info['file']['url'] = file_url
+                debug_info['file']['url_accessible'] = True
+            except Exception as e:
+                debug_info['file']['url_error'] = str(e)
+                debug_info['file']['url_accessible'] = False
         
         return JsonResponse(debug_info, status=200)
         
@@ -494,9 +528,6 @@ def debug_shared_file(request, slug):
         }, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔧 DEBUG ENDPOINT - Test email configuration
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def test_email_config(request):
     """Test endpoint to check email configuration"""
@@ -508,4 +539,6 @@ def test_email_config(request):
         'api_key_valid_format': api_key.startswith('re_') if api_key else False,
         'default_from_email': os.environ.get('DEFAULT_FROM_EMAIL', 'Not set'),
         'render_hostname': os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'Not set'),
+        'cloudinary_enabled': is_cloudinary_storage(),
+        'note': 'Email restriction removed - Resend will handle test mode limits'
     })
