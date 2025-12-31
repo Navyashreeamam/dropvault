@@ -54,9 +54,14 @@ urlpatterns = [
     path('api/trash/', file_views.trash_list, name='api_trash'),
     path('api/restore/<int:file_id>/', file_views.restore_file, name='api_restore'),
     
+
+    path('api/trash/permanent/<int:file_id>/', file_views.permanent_delete, name='api_permanent_delete'),
+    path('api/trash/empty/', file_views.empty_trash, name='api_empty_trash'),
+
     # ═══════════════════════════════════════════════════════════
     # 🔗 SHARING APIs
     # ═══════════════════════════════════════════════════════════
+    
     path('api/share/<int:file_id>/', sharingviews.create_share_link, name='api_share'),
     path('api/share/<int:file_id>/email/', sharingviews.share_via_email, name='api_share_email'),
     path('api/shared/', file_views.get_shared_files, name='api_shared_files'),

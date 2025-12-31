@@ -403,8 +403,9 @@ def delete_file(request, file_id):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🗑️ TRASH LIST
+# 🗑️ TRASH LIST - FIXED VERSION
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def trash_list(request):
     """List files in trash"""
@@ -412,43 +413,168 @@ def trash_list(request):
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
-    log_info(f"🗑️ TRASH - Auth: {request.user.is_authenticated}")
+    user = authenticate_request(request)
+    
+    log_info(f"🗑️ TRASH LIST - User: {user}, Auth: {user is not None}")
+    
+    if not user:
+        return auth_error_response()
     
     try:
-        if not request.user.is_authenticated:
-            return auth_error_response()
-        
         files = File.objects.filter(
-            user=request.user,
+            user=user,
             deleted=True
         ).order_by('-deleted_at')
         
-        data = []
+        file_list = []
+        total_size = 0
+        
         for f in files:
             deleted_at = f.deleted_at or timezone.now()
             days_remaining = max(0, 30 - (timezone.now() - deleted_at).days)
-            data.append({
+            
+            file_list.append({
                 'id': f.id,
                 'filename': f.original_name,
-                'size': f.size,
+                'size': format_file_size(f.size),  # ✅ Formatted string
+                'size_bytes': f.size,  # ✅ Also raw bytes for calculations
                 'deleted_at': deleted_at.isoformat(),
                 'days_remaining': days_remaining
             })
+            
+            total_size += f.size
         
-        log_info(f"🗑️ Returning {len(data)} items")
+        log_info(f"🗑️ Returning {len(file_list)} trashed files")
         
-        response = JsonResponse(data, safe=False)
+        # ✅ FIXED: Return object with 'files' property
+        response = JsonResponse({
+            'files': file_list,
+            'total_count': len(file_list),
+            'total_size': total_size,
+            'total_size_formatted': format_file_size(total_size)
+        })
         response['Content-Type'] = 'application/json'
         return response
         
     except Exception as e:
         log_error(f"🗑️ Error: {e}")
-        return JsonResponse([], safe=False)
+        log_error(traceback.format_exc())
+        return JsonResponse({
+            'files': [],
+            'total_count': 0,
+            'total_size': 0
+        })
 
+# ═══════════════════════════════════════════════════════════
+# 🗑️ PERMANENT DELETE FILE
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def permanent_delete(request, file_id):
+    """Permanently delete a file from trash"""
+    
+    if request.method == "OPTIONS":
+        return json_response({'status': 'ok'})
+    
+    if request.method != "DELETE":
+        return json_response({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    
+    log_info(f"🗑️ PERMANENT DELETE - File: {file_id}, User: {user}")
+    
+    if not user:
+        return auth_error_response()
+    
+    try:
+        file_obj = File.objects.get(id=file_id, user=user, deleted=True)
+        
+        filename = file_obj.original_name
+        
+        # Delete file from storage (if exists)
+        try:
+            if file_obj.file:
+                file_obj.file.delete()
+        except Exception as e:
+            log_error(f"File storage deletion error (ignored): {e}")
+        
+        # Delete from database
+        file_obj.delete()
+        
+        # Clean up trash record
+        Trash.objects.filter(file_id=file_id).delete()
+        
+        log_info(f"🗑️ ✅ Permanently deleted: {filename}")
+        
+        return json_response({
+            'status': 'success',
+            'success': True,
+            'message': f'File permanently deleted'
+        })
+        
+    except File.DoesNotExist:
+        return json_response({'error': 'File not found in trash'}, status=404)
+    except Exception as e:
+        log_error(f"🗑️ Permanent delete error: {e}")
+        log_error(traceback.format_exc())
+        return json_response({'error': str(e)}, status=500)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🗑️ EMPTY TRASH
+# ═══════════════════════════════════════════════════════════
+@csrf_exempt
+def empty_trash(request):
+    """Permanently delete all files in trash"""
+    
+    if request.method == "OPTIONS":
+        return json_response({'status': 'ok'})
+    
+    if request.method != "DELETE" and request.method != "POST":
+        return json_response({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    
+    log_info(f"🗑️ EMPTY TRASH - User: {user}")
+    
+    if not user:
+        return auth_error_response()
+    
+    try:
+        trashed_files = File.objects.filter(user=user, deleted=True)
+        count = trashed_files.count()
+        
+        # Delete files from storage
+        for file_obj in trashed_files:
+            try:
+                if file_obj.file:
+                    file_obj.file.delete()
+            except Exception as e:
+                log_error(f"File storage deletion error (ignored): {e}")
+        
+        # Delete from database
+        trashed_files.delete()
+        
+        # Clean up trash records
+        Trash.objects.filter(file__user=user).delete()
+        
+        log_info(f"🗑️ ✅ Emptied trash: {count} files deleted")
+        
+        return json_response({
+            'status': 'success',
+            'success': True,
+            'message': f'{count} files permanently deleted',
+            'deleted_count': count
+        })
+        
+    except Exception as e:
+        log_error(f"🗑️ Empty trash error: {e}")
+        log_error(traceback.format_exc())
+        return json_response({'error': str(e)}, status=500)
 
 # ═══════════════════════════════════════════════════════════
 # ♻️ RESTORE FILE
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def restore_file(request, file_id):
     """Restore file from trash"""
