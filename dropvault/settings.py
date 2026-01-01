@@ -142,6 +142,7 @@ INSTALLED_APPS = [
     'django_otp.plugins.otp_totp',
     'django_otp.plugins.otp_static',
     'corsheaders',
+
     'accounts',
     'files',
 ]
@@ -168,7 +169,7 @@ else:
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
     print("⚠️ Cloudinary NOT configured - using local storage")
     print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
-    
+
 # ═══════════════════════════════════════════════════════════
 # 🔐 DJANGO-ALLAUTH SETTINGS
 # ═══════════════════════════════════════════════════════════
@@ -308,28 +309,6 @@ CORS_EXPOSE_HEADERS = [
 # Preflight cache - browser won't repeat OPTIONS for 24 hours
 CORS_PREFLIGHT_MAX_AGE = 86400
 
-# ═══════════════════════════════════════════════════════════
-# ☁️ CLOUDINARY CONFIGURATION
-# ═══════════════════════════════════════════════════════════
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
-    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', ''),
-    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', ''),
-    'SECURE': True,
-}
-
-# Check if Cloudinary is configured
-if all([
-    CLOUDINARY_STORAGE['CLOUD_NAME'],
-    CLOUDINARY_STORAGE['API_KEY'],
-    CLOUDINARY_STORAGE['API_SECRET']
-]):
-    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-    print(f"✅ Cloudinary enabled: {CLOUDINARY_STORAGE['CLOUD_NAME']}")
-    print(f"   Files will be stored permanently on Cloudinary")
-else:
-    print("⚠️ Cloudinary NOT configured - using local storage")
-    print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
 
 # ═══════════════════════════════════════════════════════════
 # 🗂️ STATIC & MEDIA FILES
