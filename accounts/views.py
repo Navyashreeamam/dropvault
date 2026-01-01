@@ -583,6 +583,165 @@ def format_file_size(size):
     return f"{size:.1f} TB"
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔔 NOTIFICATION API ENDPOINTS
+# ═══════════════════════════════════════════════════════════
+
+@csrf_exempt
+def api_notifications(request):
+    """Get all visible notifications for the user"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        from .models import Notification
+        
+        # Cleanup old read notifications first
+        Notification.cleanup_old_notifications(user)
+        
+        # Get visible notifications
+        notifications = Notification.get_visible_notifications(user)
+        
+        notification_list = []
+        unread_count = 0
+        
+        for notif in notifications:
+            notification_list.append({
+                'id': notif.id,
+                'type': notif.notification_type,
+                'title': notif.title,
+                'message': notif.message,
+                'file_name': notif.file_name,
+                'file_id': notif.file_id,
+                'is_read': notif.is_read,
+                'created_at': notif.created_at.isoformat(),
+                'read_at': notif.read_at.isoformat() if notif.read_at else None,
+            })
+            
+            if not notif.is_read:
+                unread_count += 1
+        
+        logger.info(f"🔔 Notifications for {user.email}: {len(notification_list)} total, {unread_count} unread")
+        
+        return JsonResponse({
+            'success': True,
+            'notifications': notification_list,
+            'unread_count': unread_count,
+            'total_count': len(notification_list)
+        })
+        
+    except Exception as e:
+        logger.error(f"Notification error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_notification_read(request, notification_id):
+    """Mark a single notification as read"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        from .models import Notification
+        
+        notification = Notification.objects.get(id=notification_id, user=user)
+        notification.mark_as_read()
+        
+        logger.info(f"🔔 Marked notification {notification_id} as read for {user.email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Notification marked as read'
+        })
+        
+    except Notification.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Notification not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Mark read error: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_notifications_read_all(request):
+    """Mark all notifications as read"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        from .models import Notification
+        from django.utils import timezone
+        
+        # Mark all unread as read
+        updated = Notification.objects.filter(
+            user=user,
+            is_read=False
+        ).update(
+            is_read=True,
+            read_at=timezone.now()
+        )
+        
+        logger.info(f"🔔 Marked {updated} notifications as read for {user.email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'{updated} notifications marked as read',
+            'count': updated
+        })
+        
+    except Exception as e:
+        logger.error(f"Mark all read error: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_notification_delete(request, notification_id):
+    """Delete a specific notification"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "DELETE":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        from .models import Notification
+        
+        notification = Notification.objects.get(id=notification_id, user=user)
+        notification.delete()
+        
+        logger.info(f"🔔 Deleted notification {notification_id} for {user.email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Notification deleted'
+        })
+        
+    except Notification.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Notification not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Delete notification error: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
 @login_required
 def upload_test(request):
     return render(request, 'upload_test.html')

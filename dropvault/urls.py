@@ -44,6 +44,16 @@ urlpatterns = [
     path('api/user/password/', accounts_views.api_change_password, name='api_change_password'),
     path('api/user/preferences/', accounts_views.api_preferences, name='api_preferences'),
     
+
+    # ═══════════════════════════════════════════════════════════
+    # 🔔 NOTIFICATION APIs - NEW
+    # ═══════════════════════════════════════════════════════════
+    path('api/notifications/', accounts_views.api_notifications, name='api_notifications'),
+    path('api/notifications/<int:notification_id>/read/', accounts_views.api_notification_read, name='api_notification_read'),
+    path('api/notifications/read-all/', accounts_views.api_notifications_read_all, name='api_notifications_read_all'),
+    path('api/notifications/<int:notification_id>/delete/', accounts_views.api_notification_delete, name='api_notification_delete'),
+
+
     # ═══════════════════════════════════════════════════════════
     # 📁 FILE APIs
     # ═══════════════════════════════════════════════════════════

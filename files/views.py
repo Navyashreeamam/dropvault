@@ -630,7 +630,21 @@ def debug_files(request):
         'deleted': files.filter(deleted=True).count()
     })
 
-
+def create_user_notification(user, notification_type, title, message, file_name=None, file_id=None):
+    """Helper to create notifications"""
+    try:
+        from accounts.models import Notification
+        Notification.create_notification(
+            user=user,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            file_name=file_name,
+            file_id=file_id
+        )
+    except Exception as e:
+        log_error(f"Failed to create notification: {e}")
+        
 # ═══════════════════════════════════════════════════════════
 # 📊 DASHBOARD
 # ═══════════════════════════════════════════════════════════
