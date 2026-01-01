@@ -117,6 +117,15 @@ else:
         }
     }
 
+
+# ═══════════════════════════════════════════════════════════
+# ☁️ CLOUDINARY CONFIGURATION (check BEFORE installed apps)
+# ═══════════════════════════════════════════════════════════
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
+CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
+
 # ═══════════════════════════════════════════════════════════
 # 📦 INSTALLED APPS
 # ═══════════════════════════════════════════════════════════
@@ -129,9 +138,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     'django.contrib.sites',
 
-    'cloudinary_storage',
-    'cloudinary',
-
+    # Third party
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -143,19 +150,18 @@ INSTALLED_APPS = [
     'django_otp.plugins.otp_static',
     'corsheaders',
 
+    # Local apps
     'accounts',
     'files',
 ]
 
-CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
-CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
-CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
-
-CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
-
+# ═══════════════════════════════════════════════════════════
+# ☁️ CLOUDINARY SETUP (conditional)
+# ═══════════════════════════════════════════════════════════
 if CLOUDINARY_CONFIGURED:
-    # Add cloudinary apps
-    INSTALLED_APPS = ['cloudinary_storage'] + INSTALLED_APPS + ['cloudinary']
+    # Add cloudinary apps to INSTALLED_APPS
+    INSTALLED_APPS.insert(0, 'cloudinary_storage')
+    INSTALLED_APPS.append('cloudinary')
     
     CLOUDINARY_STORAGE = {
         'CLOUD_NAME': CLOUDINARY_CLOUD_NAME,
@@ -165,16 +171,15 @@ if CLOUDINARY_CONFIGURED:
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
     print("✅ Cloudinary configured for file storage")
 else:
-    # Use local storage
+    CLOUDINARY_STORAGE = {}
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
     print("⚠️ Cloudinary NOT configured - using local storage")
     print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
+    
 
 # ═══════════════════════════════════════════════════════════
 # 🔐 DJANGO-ALLAUTH SETTINGS
-# ═══════════════════════════════════════════════════════════
-SITE_ID = 1
-
+# ══════════════════════
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
