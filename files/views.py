@@ -205,6 +205,15 @@ def upload_file(request):
             FileLog.objects.create(user=request.user, file=file_obj, action='UPLOAD')
         except:
             pass
+
+        create_user_notification(
+            user=request.user,
+            notification_type='FILE_UPLOAD',
+            title='File Uploaded Successfully',
+            message=f'"{file_obj.original_name}" has been uploaded.',
+            file_name=file_obj.original_name,
+            file_id=file_obj.id
+        )
         
         return json_response({
             'status': 'success',
@@ -361,6 +370,7 @@ def get_shared_files(request):
 # ═══════════════════════════════════════════════════════════
 # 🗑️ DELETE FILE
 # ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def delete_file(request, file_id):
     """Move file to trash"""
@@ -379,6 +389,8 @@ def delete_file(request, file_id):
         if file_obj.deleted:
             return json_response({'error': 'Already in trash'}, status=400)
         
+        file_name = file_obj.original_name  # Save before update
+        
         file_obj.deleted = True
         file_obj.deleted_at = timezone.now()
         file_obj.save(update_fields=['deleted', 'deleted_at'])
@@ -390,6 +402,16 @@ def delete_file(request, file_id):
         
         log_info(f"🗑️ ✅ Moved to trash: {file_obj.original_name}")
         
+        # ✅ CREATE NOTIFICATION
+        create_user_notification(
+            user=request.user,
+            notification_type='FILE_DELETED',
+            title='File Moved to Trash',
+            message=f'"{file_name}" has been moved to trash.',
+            file_name=file_name,
+            file_id=file_obj.id
+        )
+        
         return json_response({
             'status': 'success',
             'message': 'File moved to trash'
@@ -400,7 +422,6 @@ def delete_file(request, file_id):
     except Exception as e:
         log_error(f"🗑️ Error: {e}")
         return json_response({'error': str(e)}, status=500)
-
 
 # ═══════════════════════════════════════════════════════════
 # 🗑️ TRASH LIST - FIXED VERSION
@@ -593,6 +614,8 @@ def restore_file(request, file_id):
         if not file_obj.deleted:
             return json_response({'error': 'File not in trash'}, status=400)
         
+        file_name = file_obj.original_name
+        
         file_obj.deleted = False
         file_obj.deleted_at = None
         file_obj.save(update_fields=['deleted', 'deleted_at'])
@@ -600,6 +623,16 @@ def restore_file(request, file_id):
         Trash.objects.filter(file=file_obj).delete()
         
         log_info(f"♻️ ✅ Restored: {file_obj.original_name}")
+        
+        # ✅ CREATE NOTIFICATION
+        create_user_notification(
+            user=request.user,
+            notification_type='FILE_RESTORED',
+            title='File Restored',
+            message=f'"{file_name}" has been restored from trash.',
+            file_name=file_name,
+            file_id=file_obj.id
+        )
         
         return json_response({
             'status': 'success',
@@ -612,7 +645,6 @@ def restore_file(request, file_id):
     except Exception as e:
         log_error(f"♻️ Error: {e}")
         return json_response({'error': str(e)}, status=500)
-
 
 # ═══════════════════════════════════════════════════════════
 # 🔍 DEBUG
@@ -630,11 +662,16 @@ def debug_files(request):
         'deleted': files.filter(deleted=True).count()
     })
 
+
+# ═══════════════════════════════════════════════════════════
+# 🔔 NOTIFICATION HELPER
+# ═══════════════════════════════════════════════════════════
+
 def create_user_notification(user, notification_type, title, message, file_name=None, file_id=None):
-    """Helper to create notifications"""
+    """Helper to create notifications for user actions"""
     try:
         from accounts.models import Notification
-        Notification.create_notification(
+        Notification.objects.create(
             user=user,
             notification_type=notification_type,
             title=title,
@@ -642,8 +679,9 @@ def create_user_notification(user, notification_type, title, message, file_name=
             file_name=file_name,
             file_id=file_id
         )
+        log_info(f"🔔 Notification created: {notification_type} - {title}")
     except Exception as e:
-        log_error(f"Failed to create notification: {e}")
+        log_error(f"🔔 Failed to create notification: {e}")
         
 # ═══════════════════════════════════════════════════════════
 # 📊 DASHBOARD

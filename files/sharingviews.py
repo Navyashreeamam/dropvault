@@ -72,6 +72,22 @@ def is_cloudinary_storage():
     ])
 
 
+def create_user_notification(user, notification_type, title, message, file_name=None, file_id=None):
+    """Helper to create notifications"""
+    try:
+        from accounts.models import Notification
+        Notification.objects.create(
+            user=user,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            file_name=file_name,
+            file_id=file_id
+        )
+        log_info(f"🔔 Notification created: {notification_type}")
+    except Exception as e:
+        log_error(f"🔔 Failed to create notification: {e}")
+
 @csrf_exempt
 def create_share_link(request, file_id):
     """Create a shareable link for a file"""
@@ -117,6 +133,16 @@ def create_share_link(request, file_id):
         share_url = f"{site_url}/s/{slug}/"
         
         log_info(f"🔗 ✅ Created: {share_url}")
+        
+
+        create_user_notification(
+            user=request.user,
+            notification_type='FILE_SHARE',
+            title='Share Link Created',
+            message=f'A share link was created for "{file_obj.original_name}".',
+            file_name=file_obj.original_name,
+            file_id=file_obj.id
+        )
         
         return json_response({
             'status': 'success',
@@ -243,6 +269,15 @@ def share_via_email(request, file_id):
                     f"To send to {recipient_email}, verify a domain at resend.com/domains"
                 )
             
+            create_user_notification(
+                user=request.user,
+                notification_type='FILE_SHARE',
+                title='File Shared via Email',
+                message=f'"{file_obj.original_name}" was shared with {recipient_email}.',
+                file_name=file_obj.original_name,
+                file_id=file_obj.id
+            )
+
             return json_response({
                 'status': 'partial',
                 'share_url': share_url,
