@@ -646,6 +646,130 @@ def restore_file(request, file_id):
         log_error(f"♻️ Error: {e}")
         return json_response({'error': str(e)}, status=500)
 
+
+
+# ═══════════════════════════════════════════════════════════
+# 📥 DOWNLOAD FILE (For Authenticated Users)
+# ═══════════════════════════════════════════════════════════
+
+@csrf_exempt
+def download_file(request, file_id):
+    """Download user's own file - requires authentication"""
+    
+    if request.method == "OPTIONS":
+        return json_response({'status': 'ok'})
+    
+    log_info(f"📥 DOWNLOAD FILE - File ID: {file_id}")
+    
+    try:
+        user = authenticate_request(request)
+        
+        if not user:
+            log_error(f"📥 Not authenticated")
+            return auth_error_response()
+        
+        # Get file and verify ownership
+        try:
+            file_obj = File.objects.get(id=file_id, user=user, deleted=False)
+        except File.DoesNotExist:
+            log_error(f"📥 File not found or not owned by user")
+            return JsonResponse({
+                'error': 'File not found',
+                'details': 'File does not exist or you do not have permission to download it'
+            }, status=404)
+        
+        log_info(f"📥 File: {file_obj.original_name} (ID: {file_obj.id})")
+        
+        # Check if file field exists
+        if not file_obj.file:
+            log_error(f"📥 No file attached to record")
+            return JsonResponse({
+                'error': 'File not found',
+                'details': 'The file record exists but no file is attached'
+            }, status=404)
+        
+        # Check actual file location
+        try:
+            file_url = file_obj.file.url
+            log_info(f"📥 File URL: {file_url}")
+            
+            # Check if this file is in Cloudinary
+            is_cloudinary_file = 'cloudinary' in file_url or 'res.cloudinary.com' in file_url
+            
+            if is_cloudinary_file:
+                log_info(f"📥 File is in Cloudinary")
+                
+                # Stream from Cloudinary
+                import requests
+                response = requests.get(file_url, stream=True, timeout=30)
+                
+                if response.status_code != 200:
+                    log_error(f"📥 Cloudinary fetch failed: {response.status_code}")
+                    return JsonResponse({
+                        'error': 'File temporarily unavailable',
+                        'details': 'Could not fetch file from storage'
+                    }, status=503)
+                
+                log_info(f"📥 Download started: {file_obj.original_name}")
+                
+                # Get content type
+                import mimetypes
+                content_type = response.headers.get('Content-Type', 'application/octet-stream')
+                if not content_type or content_type == 'application/octet-stream':
+                    content_type, _ = mimetypes.guess_type(file_obj.original_name)
+                    if not content_type:
+                        content_type = 'application/octet-stream'
+                
+                # Create streaming response
+                from django.http import HttpResponse
+                django_response = HttpResponse(
+                    response.iter_content(chunk_size=8192),
+                    content_type=content_type
+                )
+                django_response['Content-Disposition'] = f'attachment; filename="{file_obj.original_name}"'
+                
+                if 'Content-Length' in response.headers:
+                    django_response['Content-Length'] = response.headers['Content-Length']
+                
+                log_info(f"📥 ✅ Streaming from Cloudinary: {file_obj.original_name}")
+                
+                # Log download action
+                try:
+                    FileLog.objects.create(user=user, file=file_obj, action='DOWNLOAD')
+                except:
+                    pass
+                
+                return django_response
+                
+            else:
+                # File was uploaded before Cloudinary
+                log_error(f"📥 File is local storage (uploaded before Cloudinary)")
+                log_error(f"📥 File lost due to Render ephemeral storage")
+                
+                return JsonResponse({
+                    'error': 'File no longer available',
+                    'details': 'This file was uploaded before cloud storage was configured',
+                    'solution': 'Please re-upload this file',
+                    'technical': 'File was stored locally and deleted when server restarted'
+                }, status=404)
+                    
+        except Exception as e:
+            log_error(f"📥 File access error: {e}")
+            log_error(traceback.format_exc())
+            return JsonResponse({
+                'error': 'File access failed',
+                'details': str(e)
+            }, status=500)
+        
+    except Exception as e:
+        log_error(f"📥 Download error: {e}")
+        log_error(traceback.format_exc())
+        return JsonResponse({
+            'error': 'Download failed',
+            'details': str(e)
+        }, status=500)
+
+
 # ═══════════════════════════════════════════════════════════
 # 🔍 DEBUG
 # ═══════════════════════════════════════════════════════════
