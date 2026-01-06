@@ -10,17 +10,12 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔑 GET RESEND API KEY
-# ═══════════════════════════════════════════════════════════
+
 def get_resend_api_key():
     """Get Resend API key from environment"""
     return os.environ.get('RESEND_API_KEY', '').strip()
 
 
-# ═══════════════════════════════════════════════════════════
-# 📧 SEND EMAIL VIA RESEND
-# ═══════════════════════════════════════════════════════════
 def _send_email_via_resend(to_email, subject, html_content, text_content=None):
     """Send email using Resend API"""
     resend_api_key = get_resend_api_key()
@@ -66,7 +61,7 @@ def _send_email_via_resend(to_email, subject, html_content, text_content=None):
         print(f"   Response Status: {response.status_code}")
         
         if response.status_code in [200, 201]:
-            print(f"✅ Email sent successfully to {to_email}")
+            print(f" Email sent successfully to {to_email}")
             return True
         else:
             try:
@@ -83,10 +78,6 @@ def _send_email_via_resend(to_email, subject, html_content, text_content=None):
         logger.error(f"Email send error: {e}")
         return False
 
-
-# ═══════════════════════════════════════════════════════════
-# 📧 SEND VERIFICATION EMAIL
-# ═══════════════════════════════════════════════════════════
 def send_verification_email(user, async_send=True):
     """
     Send verification email to user
@@ -98,12 +89,10 @@ def send_verification_email(user, async_send=True):
         # Generate token
         token = secrets.token_urlsafe(32)
         
-        # Save token to profile
         profile, created = UserProfile.objects.get_or_create(user=user)
         profile.verification_token = token
         profile.save(update_fields=['verification_token'])
         
-        # Build verification URL
         site_url = getattr(settings, 'SITE_URL', 'http://localhost:8000')
         verify_url = f"{site_url}/accounts/verify-email/{token}/"
         
@@ -115,7 +104,6 @@ def send_verification_email(user, async_send=True):
             print(f"⚠️ Email verification link (no email service): {verify_url}")
             return False
         
-        # Prepare email content
         subject = "Verify Your Email - DropVault"
         html_content = f"""
         <html>
@@ -154,7 +142,6 @@ If you didn't create an account, you can ignore this email.
         """
         
         if async_send:
-            # Send in background thread
             thread = threading.Thread(
                 target=_send_email_via_resend,
                 args=(user.email, subject, html_content, text_content)
@@ -163,7 +150,6 @@ If you didn't create an account, you can ignore this email.
             print(f"📧 Email queued for background sending to {user.email}")
             return True
         else:
-            # Send synchronously
             return _send_email_via_resend(user.email, subject, html_content, text_content)
             
     except Exception as e:
@@ -172,9 +158,6 @@ If you didn't create an account, you can ignore this email.
         return False
 
 
-# ═══════════════════════════════════════════════════════════
-# 📧 SEND FILE SHARE EMAIL - FIXED TO RETURN TUPLE
-# ═══════════════════════════════════════════════════════════
 def send_file_share_email(to_email, from_user, file_name, share_url, message=None):
     """
     Send file sharing notification email
@@ -260,10 +243,6 @@ This is an automated message from DropVault.
         print(f"❌ Error sending share email: {e}")
         return False, str(e)
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔑 VERIFY TOKEN
-# ═══════════════════════════════════════════════════════════
 def verify_token(token):
     """Verify email token and return user if valid"""
     try:
@@ -274,17 +253,11 @@ def verify_token(token):
         return None
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔑 GENERATE TOKEN
-# ═══════════════════════════════════════════════════════════
 def generate_token(length=32):
     """Generate a random URL-safe token"""
     return secrets.token_urlsafe(length)
 
 
-# ═══════════════════════════════════════════════════════════
-# 📧 SEND GENERIC EMAIL (Optional helper)
-# ═══════════════════════════════════════════════════════════
 def send_email(to_email, subject, html_content, text_content=None, async_send=True):
     """
     Generic email sending function

@@ -1,5 +1,4 @@
 # accounts/views.py
-# COMPLETE WORKING VERSION
 
 import os
 import json
@@ -27,9 +26,6 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 TOKEN AUTHENTICATION HELPER
-# ═══════════════════════════════════════════════════════════
 def authenticate_request(request):
     """Authenticate request using Token or Session"""
     if request.user.is_authenticated:
@@ -47,18 +43,12 @@ def authenticate_request(request):
     return None
 
 
-# ═══════════════════════════════════════════════════════════
-# 🏠 HOME VIEW
-# ═══════════════════════════════════════════════════════════
 def home(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
     return render(request, 'home.html')
 
 
-# ═══════════════════════════════════════════════════════════
-# 📝 WEB VIEWS
-# ═══════════════════════════════════════════════════════════
 def signup_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
@@ -161,10 +151,6 @@ def disable_mfa(request):
         return redirect('dashboard')
     return render(request, 'disable_mfa.html')
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: SIGNUP
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_signup(request):
     if request.method == "OPTIONS":
@@ -206,10 +192,6 @@ def api_signup(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: LOGIN
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_login(request):
     if request.method == "OPTIONS":
@@ -252,10 +234,6 @@ def api_login(request):
         logger.error(f"Login error: {e}")
         return JsonResponse({'success': False, 'error': 'Login failed'}, status=500)
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: LOGOUT
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_logout(request):
     if request.method == "OPTIONS":
@@ -267,10 +245,6 @@ def api_logout(request):
     logout(request)
     return JsonResponse({'success': True})
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: DASHBOARD
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def api_dashboard(request):
@@ -305,7 +279,7 @@ def api_dashboard(request):
         recent_files = File.objects.filter(user=user, deleted=False).order_by('-uploaded_at')[:5]
         recent_data = [
             {
-                'id': f.id, 
+                'id': f.id,
                 'name': f.original_name,
                 'filename': f.original_name,
                 'size': f.size
@@ -325,9 +299,9 @@ def api_dashboard(request):
                 'total_files': total_files,
                 'trashFiles': total_trash,
                 'trash_files': total_trash,
-                'sharedFiles': shared_count,      # ✅ ADDED
-                'shared_count': shared_count,     # ✅ ADDED (alternative key)
-                'sharedCount': shared_count,      # ✅ ADDED (another alternative)
+                'sharedFiles': shared_count,
+                'shared_count': shared_count,
+                'sharedCount': shared_count,
                 'recentFiles': recent_data,
                 'recent_files': recent_data,
             },
@@ -344,9 +318,6 @@ def api_dashboard(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: USER PROFILE
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_user_profile(request):
     if request.method == "OPTIONS":
@@ -361,10 +332,6 @@ def api_user_profile(request):
         'data': {'id': user.id, 'email': user.email, 'name': f"{user.first_name} {user.last_name}".strip()}
     })
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: CHECK AUTH
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_check_auth(request):
     if request.method == "OPTIONS":
@@ -375,10 +342,6 @@ def api_check_auth(request):
         return JsonResponse({'authenticated': True, 'user': {'id': user.id, 'email': user.email}})
     return JsonResponse({'authenticated': False})
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔌 API: GOOGLE OAUTH - WORKING VERSION
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_google_login(request):
     """Handle Google OAuth login"""
@@ -531,9 +494,6 @@ def api_google_login(request):
         return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 OTHER API ENDPOINTS
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def api_verify_email(request):
     if request.method == "OPTIONS":
@@ -581,11 +541,6 @@ def format_file_size(size):
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
-
-
-# ═══════════════════════════════════════════════════════════
-# 🔔 NOTIFICATION API ENDPOINTS
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def api_notifications(request):

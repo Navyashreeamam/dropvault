@@ -7,7 +7,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# If modifying these scopes, delete token.pickle
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 USE_GMAIL = os.getenv('USE_GMAIL', 'false').lower() == 'true'
 
@@ -27,7 +26,6 @@ def get_gmail_service(user_email):
     """Get authorized Gmail service for a specific user (server-to-server).
        For production, use service account or per-user OAuth."""
     
-    # For dev: use single admin account (navyashreeamam@gmail.com)
     creds = None
     token_path = os.path.join(settings.BASE_DIR, 'token.pickle')
     
@@ -39,7 +37,6 @@ def get_gmail_service(user_email):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            # Only for local dev — in prod, use service account
             flow = InstalledAppFlow.from_client_secrets_file(
                 os.path.join(settings.BASE_DIR, 'credentials.json'), SCOPES
             )

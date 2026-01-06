@@ -170,9 +170,6 @@ def create_share_link(request, file_id):
         return json_response({'error': str(e)}, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 📧 SHARE VIA EMAIL - FIXED (No restriction)
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def share_via_email(request, file_id):
     """Share a file via email - NO RESTRICTION"""
@@ -231,7 +228,7 @@ def share_via_email(request, file_id):
                 'error': 'Valid email address required'
             }, status=400)
         
-        # ✅ REMOVED: Email restriction code
+        # REMOVED: Email restriction code
         # Now allows sending to ANY email address
         # Note: Resend free tier may still limit emails to verified addresses
         # To send to any email, verify a domain at https://resend.com/domains
@@ -271,7 +268,7 @@ def share_via_email(request, file_id):
                 'message': f'File shared! Email sent to {recipient_email}. Check spam folder.'
             })
         else:
-            # ✅ IMPROVED: Better error message for Resend test mode
+            # IMPROVED: Better error message for Resend test mode
             error_detail = error_msg or 'Email sending failed'
             
             # Check if it's a Resend test mode error
@@ -363,10 +360,6 @@ def shared_file_view(request, slug, action=None):
     })
 
 
-# ═══════════════════════════════════════════════════════════
-# 📥 DOWNLOAD SHARED FILE - FIXED FOR CLOUDINARY
-# ═══════════════════════════════════════════════════════════
-
 @csrf_exempt
 def download_shared_file(request, slug):
     """Download a shared file - Works with Cloudinary and local storage"""
@@ -421,9 +414,7 @@ def download_shared_file(request, slug):
             log_error(f"📥 Cannot get file URL: {e}")
             return JsonResponse({'error': 'File URL not available'}, status=500)
         
-        # ════════════════════════════════════════════════════
         # CLOUDINARY / REMOTE URL - Stream the file
-        # ════════════════════════════════════════════════════
         if file_url.startswith('http://') or file_url.startswith('https://'):
             log_info(f"📥 Downloading from remote URL: {file_url}")
             
@@ -466,9 +457,7 @@ def download_shared_file(request, slug):
                 log_error(f"📥 Request error: {e}")
                 return JsonResponse({'error': f'Download failed: {str(e)}'}, status=500)
         
-        # ════════════════════════════════════════════════════
         # LOCAL STORAGE
-        # ════════════════════════════════════════════════════
         else:
             log_info(f"📥 Using local storage")
             
@@ -515,9 +504,6 @@ def download_shared_file(request, slug):
         return JsonResponse({'error': f'Download failed: {str(e)}'}, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔧 DEBUG ENDPOINTS
-# ═══════════════════════════════════════════════════════════
 def debug_shared_file(request, slug):
     """Debug endpoint to check file status"""
     try:

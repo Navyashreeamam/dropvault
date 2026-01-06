@@ -8,9 +8,7 @@ logging.basicConfig(level=logging.INFO)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# ═══════════════════════════════════════════════════════════
-# 🔧 LOAD .ENV FILE
-# ═══════════════════════════════════════════════════════════
+# LOAD .ENV FILE
 from dotenv import load_dotenv
 
 env_path = BASE_DIR / '.env'
@@ -21,9 +19,8 @@ if env_path.exists():
 else:
     print(f"⚠️  .env file NOT found at: {env_path}")
 
-# ═══════════════════════════════════════════════════════════
-# 🔧 ENVIRONMENT DETECTION
-# ═══════════════════════════════════════════════════════════
+
+# ENVIRONMENT DETECTION
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 IS_RENDER = os.environ.get('RENDER') is not None
 
@@ -31,9 +28,8 @@ print(f"✅ Starting DropVault settings...")
 print(f"IS_RAILWAY: {IS_RAILWAY}")
 print(f"IS_RENDER: {IS_RENDER}")
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 SECURITY SETTINGS
-# ═══════════════════════════════════════════════════════════
+
+# SECURITY SETTINGS
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-this-in-production')
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
 
@@ -53,9 +49,8 @@ if IS_RAILWAY or IS_RENDER:
     USE_X_FORWARDED_HOST = True
     USE_X_FORWARDED_PORT = True
 
-# ═══════════════════════════════════════════════════════════
-# 🌐 SITE URL CONFIGURATION
-# ═══════════════════════════════════════════════════════════
+
+# SITE URL CONFIGURATION
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
 
 if IS_RENDER and RENDER_EXTERNAL_HOSTNAME:
@@ -71,9 +66,8 @@ else:
 
 print(f"✅ SITE_URL: {SITE_URL}")
 
-# ═══════════════════════════════════════════════════════════
-# 📧 EMAIL CONFIGURATION
-# ═══════════════════════════════════════════════════════════
+
+# EMAIL CONFIGURATION
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
@@ -94,9 +88,7 @@ else:
     DEFAULT_FROM_EMAIL = 'DropVault <noreply@dropvault.com>'
     print("⚠️ Email: Console only")
 
-# ═══════════════════════════════════════════════════════════
-# 🗄️ DATABASE CONFIGURATION
-# ═══════════════════════════════════════════════════════════
+# DATABASE CONFIGURATION
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
 if DATABASE_URL and DATABASE_URL.startswith('postgres'):
@@ -118,17 +110,14 @@ else:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# ☁️ CLOUDINARY CONFIGURATION (check BEFORE installed apps)
-# ═══════════════════════════════════════════════════════════
+# CLOUDINARY CONFIGURATION (check BEFORE installed apps)
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
 CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
 
-# ═══════════════════════════════════════════════════════════
-# 📦 INSTALLED APPS
-# ═══════════════════════════════════════════════════════════
+
+# INSTALLED APPS
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -138,7 +127,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     'django.contrib.sites',
 
-    # Third party
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -155,9 +143,7 @@ INSTALLED_APPS = [
     'files',
 ]
 
-# ═══════════════════════════════════════════════════════════
-# ☁️ CLOUDINARY SETUP (conditional)
-# ═══════════════════════════════════════════════════════════
+# CLOUDINARY SETUP (conditional)
 if CLOUDINARY_CONFIGURED:
     # Add cloudinary apps to INSTALLED_APPS
     INSTALLED_APPS.insert(0, 'cloudinary_storage')
@@ -177,9 +163,7 @@ else:
     print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
     
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 DJANGO-ALLAUTH SETTINGS
-# ══════════════════════
+# DJANGO-ALLAUTH SETTINGS
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
@@ -194,9 +178,8 @@ LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/'
 ACCOUNT_LOGOUT_REDIRECT_URL = '/'
 
-# ═══════════════════════════════════════════════════════════
-# 🔒 PASSWORD VALIDATION
-# ═══════════════════════════════════════════════════════════
+
+# PASSWORD VALIDATION
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
     'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
@@ -210,9 +193,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# ═══════════════════════════════════════════════════════════
-# 🌐 MIDDLEWARE
-# ═══════════════════════════════════════════════════════════
+
+# MIDDLEWARE
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -229,16 +211,15 @@ MIDDLEWARE = [
     #'accounts.middleware.EmailVerificationMiddleware',
 ]
 
-# ═══════════════════════════════════════════════════════════
-# 🍪 SESSION & COOKIE CONFIGURATION - FIXED!
-# ═══════════════════════════════════════════════════════════
+
+# SESSION & COOKIE CONFIGURATION - FIXED!
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_NAME = 'dropvault_sessionid'
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_SAVE_EVERY_REQUEST = True
 
-# ✅ CRITICAL: These must be set ONCE and correctly for cross-origin
+# CRITICAL: These must be set ONCE and correctly for cross-origin
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'None'  # Required for cross-origin
 SESSION_COOKIE_SECURE = True      # Required when SameSite=None
@@ -258,10 +239,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.onrender.com",
 ]
 
-# ═══════════════════════════════════════════════════════════
-# 🌍 CORS CONFIGURATION
-# ═══════════════════════════════════════════════════════════
-
+# CORS CONFIGURATION
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -281,7 +259,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 # Allow credentials (cookies, auth headers)
 CORS_ALLOW_CREDENTIALS = True
 
-# ✅ CRITICAL - Include ALL custom headers
+# CRITICAL - Include ALL custom headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -292,7 +270,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
-    'x-session-id',  # ✅ ADD THIS
+    'x-session-id',
     'cookie',
 ]
 
@@ -315,9 +293,7 @@ CORS_EXPOSE_HEADERS = [
 CORS_PREFLIGHT_MAX_AGE = 86400
 
 
-# ═══════════════════════════════════════════════════════════
-# 🗂️ STATIC & MEDIA FILES
-# ═══════════════════════════════════════════════════════════
+# STATIC & MEDIA FILES
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
@@ -331,23 +307,18 @@ else:
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 SECURITY SETTINGS
-# ═══════════════════════════════════════════════════════════
+# SECURITY SETTINGS
 SECURE_SSL_REDIRECT = False
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
-# ═══════════════════════════════════════════════════════════
-# 🚀 UPLOAD LIMITS
-# ═══════════════════════════════════════════════════════════
+# UPLOAD LIMITS
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
-# ═══════════════════════════════════════════════════════════
-# 🔴 CACHE
-# ═══════════════════════════════════════════════════════════
+
+# CACHE
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -358,9 +329,7 @@ CACHES = {
 RATELIMIT_USE_CACHE = 'default'
 SILENCED_SYSTEM_CHECKS = ['django_ratelimit.E003', 'django_ratelimit.W001']
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 REST FRAMEWORK
-# ═══════════════════════════════════════════════════════════
+# REST FRAMEWORK
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -371,9 +340,7 @@ REST_FRAMEWORK = {
     ],
 }
 
-# ═══════════════════════════════════════════════════════════
-# 📝 LOGGING
-# ═══════════════════════════════════════════════════════════
+# LOGGING
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -413,9 +380,7 @@ LOGGING = {
     },
 }
 
-# ═══════════════════════════════════════════════════════════
-# 🌐 TEMPLATES
-# ═══════════════════════════════════════════════════════════
+# TEMPLATES
 ROOT_URLCONF = 'dropvault.urls'
 
 TEMPLATES = [
@@ -436,9 +401,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'dropvault.wsgi.application'
 
-# ═══════════════════════════════════════════════════════════
-# 🌍 INTERNATIONALIZATION
-# ═══════════════════════════════════════════════════════════
+# INTERNATIONALIZATION
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True

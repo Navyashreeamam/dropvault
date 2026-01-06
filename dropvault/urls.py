@@ -25,9 +25,7 @@ urlpatterns = [
     path('', accounts_views.home, name='home'),
     path('dashboard/', login_required(file_views.dashboard), name='dashboard'),
     
-    # ═══════════════════════════════════════════════════════════
-    # 🔐 AUTH APIs
-    # ═══════════════════════════════════════════════════════════
+    # AUTH APIs
     path('api/signup/', accounts_views.api_signup, name='api_signup'),
     path('api/login/', accounts_views.api_login, name='api_login'),
     path('api/logout/', accounts_views.api_logout, name='api_logout'),
@@ -35,9 +33,7 @@ urlpatterns = [
     path('api/auth/check/', accounts_views.api_check_auth, name='api_check_auth'),
     path('api/auth/google/', accounts_views.api_google_login, name='api_google_login'),
     
-    # ═══════════════════════════════════════════════════════════
-    # 👤 USER APIs
-    # ═══════════════════════════════════════════════════════════
+    # USER APIs
     path('api/user/', accounts_views.api_user_profile, name='api_user_profile'),
     path('api/dashboard/', accounts_views.api_dashboard, name='api_dashboard'),
     path('api/user/profile/', accounts_views.api_update_profile, name='api_update_profile'),
@@ -45,18 +41,13 @@ urlpatterns = [
     path('api/user/preferences/', accounts_views.api_preferences, name='api_preferences'),
     
 
-    # ═══════════════════════════════════════════════════════════
-    # 🔔 NOTIFICATION APIs - NEW
-    # ═══════════════════════════════════════════════════════════
+    # NOTIFICATION APIs - NEW
     path('api/notifications/', accounts_views.api_notifications, name='api_notifications'),
     path('api/notifications/<int:notification_id>/read/', accounts_views.api_notification_read, name='api_notification_read'),
     path('api/notifications/read-all/', accounts_views.api_notifications_read_all, name='api_notifications_read_all'),
     path('api/notifications/<int:notification_id>/delete/', accounts_views.api_notification_delete, name='api_notification_delete'),
 
-
-    # ═══════════════════════════════════════════════════════════
-    # 📁 FILE APIs
-    # ═══════════════════════════════════════════════════════════
+    # FILE APIs
     path('api/upload/', file_views.upload_file, name='api_upload'),
     path('api/list/', file_views.list_files, name='api_list'),
     path('api/files/', file_views.list_files, name='api_files'),
@@ -68,9 +59,7 @@ urlpatterns = [
     path('api/trash/permanent/<int:file_id>/', file_views.permanent_delete, name='api_permanent_delete'),
     path('api/trash/empty/', file_views.empty_trash, name='api_empty_trash'),
 
-    # ═══════════════════════════════════════════════════════════
-    # 🔗 SHARING APIs
-    # ═══════════════════════════════════════════════════════════
+    # SHARING APIs
     path('api/share/<int:file_id>/', sharingviews.create_share_link, name='api_share'),
     path('api/share/<int:file_id>/email/', sharingviews.share_via_email, name='api_share_email'),
     path('api/shared/', file_views.get_shared_files, name='api_shared_files'),

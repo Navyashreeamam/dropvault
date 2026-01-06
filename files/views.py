@@ -56,9 +56,8 @@ def authenticate_request(request):
     
     return None
 
-# ═══════════════════════════════════════════════════════════
-# 🔧 LOGGING - Force flush to console
-# ═══════════════════════════════════════════════════════════
+#LOGGING - Force flush to console
+
 def log_info(msg):
     print(f"[INFO] {msg}", file=sys.stdout, flush=True)
     sys.stdout.flush()
@@ -68,9 +67,6 @@ def log_error(msg):
     sys.stdout.flush()
 
 
-# ═══════════════════════════════════════════════════════════
-# 🛠️ CONSTANTS
-# ═══════════════════════════════════════════════════════════
 ALLOWED_EXTENSIONS = {
     '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
     '.doc', '.docx', '.txt', '.rtf', '.odt',
@@ -102,9 +98,6 @@ def get_file_hash(file):
     return hasher.hexdigest()
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔐 JSON Response Helpers
-# ═══════════════════════════════════════════════════════════
 def json_response(data, status=200):
     """Always return proper JSON with correct headers"""
     response = JsonResponse(data, status=status)
@@ -121,10 +114,6 @@ def auth_error_response():
         'login_required': True
     }, status=401)
 
-
-# ═══════════════════════════════════════════════════════════
-# 📤 UPLOAD FILE
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def upload_file(request):
     """Upload a file - handles POST and OPTIONS"""
@@ -235,10 +224,6 @@ def upload_file(request):
         }, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 📂 LIST FILES
-# ═══════════════════════════════════════════════════════════
-
 def format_file_size(size_bytes):
     """Convert bytes to human-readable format"""
     if size_bytes == 0:
@@ -311,7 +296,7 @@ def list_files(request):
     
     log_info(f"📂 Returning {len(file_list)} files, {len(shared_list)} shared links")
     
-    # ✅ FIXED: Return correct structure
+    #Return correct structure
     response = JsonResponse({
         'your_files': file_list,
         'shared_files': shared_list
@@ -319,10 +304,6 @@ def list_files(request):
     response['Content-Type'] = 'application/json'
     return response
 
-
-# ═══════════════════════════════════════════════════════════
-# 🔗 GET SHARED FILES - NEW ENDPOINT
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def get_shared_files(request):
@@ -367,9 +348,6 @@ def get_shared_files(request):
     response['Content-Type'] = 'application/json'
     return response
 
-# ═══════════════════════════════════════════════════════════
-# 🗑️ DELETE FILE
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def delete_file(request, file_id):
@@ -423,9 +401,6 @@ def delete_file(request, file_id):
         log_error(f"🗑️ Error: {e}")
         return json_response({'error': str(e)}, status=500)
 
-# ═══════════════════════════════════════════════════════════
-# 🗑️ TRASH LIST - FIXED VERSION
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def trash_list(request):
@@ -486,9 +461,7 @@ def trash_list(request):
             'total_size': 0
         })
 
-# ═══════════════════════════════════════════════════════════
-# 🗑️ PERMANENT DELETE FILE
-# ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def permanent_delete(request, file_id):
     """Permanently delete a file from trash"""
@@ -540,9 +513,7 @@ def permanent_delete(request, file_id):
         return json_response({'error': str(e)}, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🗑️ EMPTY TRASH
-# ═══════════════════════════════════════════════════════════
+
 @csrf_exempt
 def empty_trash(request):
     """Permanently delete all files in trash"""
@@ -592,9 +563,6 @@ def empty_trash(request):
         log_error(traceback.format_exc())
         return json_response({'error': str(e)}, status=500)
 
-# ═══════════════════════════════════════════════════════════
-# ♻️ RESTORE FILE
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def restore_file(request, file_id):
@@ -647,10 +615,6 @@ def restore_file(request, file_id):
         return json_response({'error': str(e)}, status=500)
 
 
-
-# ═══════════════════════════════════════════════════════════
-# 📥 DOWNLOAD FILE (For Authenticated Users)
-# ═══════════════════════════════════════════════════════════
 
 @csrf_exempt
 def download_file(request, file_id):
@@ -770,9 +734,6 @@ def download_file(request, file_id):
         }, status=500)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔍 DEBUG
-# ═══════════════════════════════════════════════════════════
 @csrf_exempt
 def debug_files(request):
     if not request.user.is_authenticated:
@@ -787,9 +748,6 @@ def debug_files(request):
     })
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔔 NOTIFICATION HELPER
-# ═══════════════════════════════════════════════════════════
 
 def create_user_notification(user, notification_type, title, message, file_name=None, file_id=None):
     """Helper to create notifications for user actions"""
@@ -807,9 +765,8 @@ def create_user_notification(user, notification_type, title, message, file_name=
     except Exception as e:
         log_error(f"🔔 Failed to create notification: {e}")
         
-# ═══════════════════════════════════════════════════════════
-# 📊 DASHBOARD
-# ═══════════════════════════════════════════════════════════
+
+
 @login_required
 def dashboard(request):
     log_info(f"📊 DASHBOARD - User: {request.user.email}")
