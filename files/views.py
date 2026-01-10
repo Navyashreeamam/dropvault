@@ -781,3 +781,50 @@ def dashboard(request):
         'files': files,
         'shared_links': shared_links
     })
+
+
+@csrf_exempt
+def debug_file_info(request, file_id):
+    """Debug endpoint to check file storage location"""
+    user = authenticate_request(request)
+    
+    if not user:
+        return json_response({'error': 'Not authenticated'}, status=401)
+    
+    try:
+        file_obj = File.objects.get(id=file_id, user=user)
+        
+        file_url = None
+        url_type = None
+        
+        if file_obj.file:
+            try:
+                file_url = file_obj.file.url
+                if 'cloudinary' in file_url or 'res.cloudinary.com' in file_url:
+                    url_type = 'cloudinary'
+                elif file_url.startswith('http'):
+                    url_type = 'remote'
+                else:
+                    url_type = 'local'
+            except Exception as e:
+                file_url = f"Error: {e}"
+        
+        return json_response({
+            'file': {
+                'id': file_obj.id,
+                'name': file_obj.original_name,
+                'size': file_obj.size,
+                'uploaded_at': file_obj.uploaded_at.isoformat(),
+                'deleted': file_obj.deleted,
+            },
+            'storage': {
+                'file_url': file_url,
+                'url_type': url_type,
+                'is_cloudinary': url_type == 'cloudinary',
+                'can_download': url_type == 'cloudinary',
+            },
+            'message': 'File is downloadable' if url_type == 'cloudinary' else 'File lost - was stored locally before Cloudinary was configured'
+        })
+        
+    except File.DoesNotExist:
+        return json_response({'error': 'File not found'}, status=404)

@@ -56,6 +56,7 @@ urlpatterns = [
     path('api/restore/<int:file_id>/', file_views.restore_file, name='api_restore'),
     path('api/files/<int:file_id>/download/', file_views.download_file, name='api_download_file'),
     path('api/download/<int:file_id>/', file_views.download_file, name='api_download'),
+    path('api/files/<int:file_id>/info/', file_views.debug_file_info, name='api_file_info'),
 
     path('api/trash/permanent/<int:file_id>/', file_views.permanent_delete, name='api_permanent_delete'),
     path('api/trash/empty/', file_views.empty_trash, name='api_empty_trash'),
