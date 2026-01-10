@@ -828,3 +828,44 @@ def debug_file_info(request, file_id):
         
     except File.DoesNotExist:
         return json_response({'error': 'File not found'}, status=404)
+
+@csrf_exempt
+def debug_storage_config(request):
+    """Check if Cloudinary is properly configured"""
+    from django.core.files.storage import default_storage
+    
+    # Get actual storage backend being used
+    storage_class = type(default_storage).__name__
+    storage_module = type(default_storage).__module__
+    
+    # Check environment variables
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+    api_key = os.environ.get('CLOUDINARY_API_KEY', '')
+    api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
+    
+    # Check settings
+    cloudinary_storage = getattr(settings, 'CLOUDINARY_STORAGE', {})
+    default_file_storage = getattr(settings, 'DEFAULT_FILE_STORAGE', 'NOT SET')
+    
+    return json_response({
+        'environment_variables': {
+            'CLOUDINARY_CLOUD_NAME': cloud_name if cloud_name else 'NOT SET ❌',
+            'CLOUDINARY_API_KEY': 'SET ✅' if api_key else 'NOT SET ❌',
+            'CLOUDINARY_API_SECRET': 'SET ✅' if api_secret else 'NOT SET ❌',
+            'all_set': bool(cloud_name and api_key and api_secret)
+        },
+        'django_settings': {
+            'DEFAULT_FILE_STORAGE': default_file_storage,
+            'CLOUDINARY_STORAGE': {
+                'CLOUD_NAME': cloudinary_storage.get('CLOUD_NAME', 'NOT SET'),
+                'API_KEY': 'SET' if cloudinary_storage.get('API_KEY') else 'NOT SET',
+                'API_SECRET': 'SET' if cloudinary_storage.get('API_SECRET') else 'NOT SET',
+            }
+        },
+        'actual_storage_being_used': {
+            'class': storage_class,
+            'module': storage_module,
+            'is_cloudinary': 'cloudinary' in storage_module.lower()
+        },
+        'diagnosis': 'WORKING ✅' if 'cloudinary' in storage_module.lower() else 'NOT WORKING ❌ - Files going to local storage!'
+    })
