@@ -148,7 +148,6 @@ def upload_file(request):
         
         # Check for file
         if 'file' not in request.FILES:
-            log_error("📤 ❌ No file in request")
             return json_response({
                 'error': 'No file provided',
                 'message': 'Please select a file to upload'
@@ -160,16 +159,13 @@ def upload_file(request):
         # Validate
         valid, error_msg = validate_file(file)
         if not valid:
-            log_error(f"📤 ❌ Validation failed: {error_msg}")
             return json_response({'error': error_msg}, status=400)
         
         # Get hash
         file_hash = get_file_hash(file)
-        log_info(f"📤 Hash: {file_hash[:16]}...")
         
         # Check duplicate
         if File.objects.filter(user=user, sha256=file_hash, deleted=False).exists():
-            log_info("📤 ⚠️ Duplicate detected")
             return json_response({
                 'error': 'Duplicate file',
                 'message': 'You already uploaded this file'
@@ -183,19 +179,15 @@ def upload_file(request):
         api_secret = os.environ.get('CLOUDINARY_API_SECRET')
         
         if not (cloud_name and api_key and api_secret):
-            log_error("📤 ❌ Cloudinary NOT configured!")
             return json_response({
-                'error': 'Storage not configured',
-                'message': 'Please configure Cloudinary'
+                'error': 'Storage not configured'
             }, status=500)
-        
-        log_info("📤 Uploading to Cloudinary...")
         
         try:
             import cloudinary
             import cloudinary.uploader
+            import cloudinary.utils
             
-            # Configure Cloudinary
             cloudinary.config(
                 cloud_name=cloud_name,
                 api_key=api_key,
@@ -204,20 +196,21 @@ def upload_file(request):
             )
             
             # Generate unique filename
-            ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
             unique_name = f"{uuid.uuid4().hex}"
             
-            # Determine resource type
+            # Determine resource type based on content
             content_type = file.content_type or ''
-            if content_type.startswith('image/'):
+            ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
+            
+            if content_type.startswith('image/') or ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']:
                 resource_type = 'image'
-            elif content_type.startswith('video/'):
+            elif content_type.startswith('video/') or ext in ['mp4', 'mov', 'avi', 'webm']:
                 resource_type = 'video'
             else:
                 resource_type = 'raw'
             
-            log_info(f"📤 Resource type: {resource_type}")
-
+            log_info(f"📤 Content-Type: {content_type}, Extension: {ext}, Resource Type: {resource_type}")
+            
             # Upload to Cloudinary
             file.seek(0)
             upload_result = cloudinary.uploader.upload(
@@ -225,23 +218,37 @@ def upload_file(request):
                 folder=f"user_{user.id}",
                 public_id=unique_name,
                 resource_type=resource_type,
-                type='upload',
-                access_mode='public',
-                use_filename=False,
-                unique_filename=True
+                type='upload'
             )
             
-            cloudinary_url = upload_result.get('secure_url')
             cloudinary_public_id = upload_result.get('public_id')
+            actual_resource_type = upload_result.get('resource_type', resource_type)
             
-            log_info(f"📤 ✅ Cloudinary URL: {cloudinary_url}")
+            log_info(f"📤 Upload result - Public ID: {cloudinary_public_id}, Resource Type: {actual_resource_type}")
+            
+            # ✅ Generate appropriate URL
+            if actual_resource_type == 'raw':
+                # For raw files (PDFs, docs), generate signed URL
+                cloudinary_url, options = cloudinary.utils.cloudinary_url(
+                    cloudinary_public_id,
+                    resource_type='raw',
+                    type='upload',
+                    secure=True,
+                    sign_url=True
+                )
+                log_info(f"📤 Generated SIGNED URL for raw file")
+            else:
+                # For images/videos, use regular URL
+                cloudinary_url = upload_result.get('secure_url')
+            
+            log_info(f"📤 ✅ Final URL: {cloudinary_url}")
             
         except Exception as e:
-            log_error(f"📤 ❌ Cloudinary upload failed: {e}")
+            log_error(f"📤 ❌ Cloudinary error: {e}")
             log_error(traceback.format_exc())
             return json_response({
                 'error': 'Upload failed',
-                'message': f'Cloudinary error: {str(e)}'
+                'message': str(e)
             }, status=500)
         
         # ═══════════════════════════════════════════════════════════
@@ -253,28 +260,26 @@ def upload_file(request):
             size=file.size,
             sha256=file_hash,
             deleted=False,
-            deleted_at=None,
             cloudinary_url=cloudinary_url,
-            cloudinary_public_id=cloudinary_public_id
+            cloudinary_public_id=cloudinary_public_id,
+            cloudinary_resource_type=actual_resource_type  # Store resource type
         )
         
-        log_info(f"📤 ✅ SUCCESS! File ID: {file_obj.id}")
+        log_info(f"📤 ✅ File saved! ID: {file_obj.id}")
         
-        # Log action
+        # Log & Notify
         try:
             FileLog.objects.create(user=user, file=file_obj, action='UPLOAD')
+            create_user_notification(
+                user=user,
+                notification_type='FILE_UPLOAD',
+                title='File Uploaded Successfully',
+                message=f'"{file_obj.original_name}" has been uploaded.',
+                file_name=file_obj.original_name,
+                file_id=file_obj.id
+            )
         except:
             pass
-
-        # Notification
-        create_user_notification(
-            user=user,
-            notification_type='FILE_UPLOAD',
-            title='File Uploaded Successfully',
-            message=f'"{file_obj.original_name}" has been uploaded.',
-            file_name=file_obj.original_name,
-            file_id=file_obj.id
-        )
         
         return json_response({
             'status': 'success',
@@ -285,12 +290,13 @@ def upload_file(request):
                 'size': file_obj.size,
                 'uploaded_at': file_obj.uploaded_at.isoformat(),
                 'cloudinary_url': cloudinary_url,
-                'storage': 'cloudinary'
+                'storage': 'cloudinary',
+                'resource_type': actual_resource_type
             }
         }, status=201)
         
     except Exception as e:
-        log_error(f"📤 ❌ EXCEPTION: {str(e)}")
+        log_error(f"📤 ❌ EXCEPTION: {e}")
         log_error(traceback.format_exc())
         return json_response({
             'error': 'Upload failed',
@@ -314,7 +320,6 @@ def format_file_size(size_bytes):
     return f"{size:.2f} {units[unit_index]}"
 
 
-
 @csrf_exempt
 def download_file(request, file_id):
     """Download user's own file"""
@@ -322,48 +327,58 @@ def download_file(request, file_id):
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
-    log_info(f"📥 DOWNLOAD FILE - File ID: {file_id}")
+    log_info(f"📥 DOWNLOAD FILE - ID: {file_id}")
     
     try:
         user = authenticate_request(request)
-        
         if not user:
-            log_error("📥 Not authenticated")
             return auth_error_response()
         
-        # Get file
         try:
             file_obj = File.objects.get(id=file_id, user=user, deleted=False)
         except File.DoesNotExist:
-            log_error("📥 File not found")
             return JsonResponse({'error': 'File not found'}, status=404)
         
         log_info(f"📥 File: {file_obj.original_name}")
         
-        # ✅ Use the stored Cloudinary URL
+        # Get download URL
         download_url = file_obj.cloudinary_url
         
-        if not download_url:
-            # Fallback to file field
-            if file_obj.file:
-                try:
-                    download_url = file_obj.file.url
-                except:
-                    pass
+        # ✅ For raw files, regenerate signed URL (in case it expired)
+        if file_obj.cloudinary_public_id and file_obj.cloudinary_resource_type == 'raw':
+            try:
+                import cloudinary
+                import cloudinary.utils
+                
+                cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
+                api_key = os.environ.get('CLOUDINARY_API_KEY')
+                api_secret = os.environ.get('CLOUDINARY_API_SECRET')
+                
+                cloudinary.config(
+                    cloud_name=cloud_name,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    secure=True
+                )
+                
+                download_url, _ = cloudinary.utils.cloudinary_url(
+                    file_obj.cloudinary_public_id,
+                    resource_type='raw',
+                    type='upload',
+                    secure=True,
+                    sign_url=True
+                )
+                log_info(f"📥 Generated fresh signed URL")
+            except Exception as e:
+                log_error(f"📥 Could not generate signed URL: {e}")
         
         log_info(f"📥 Download URL: {download_url}")
         
         if not download_url:
-            log_error("📥 No download URL available")
-            return JsonResponse({
-                'error': 'File not available',
-                'details': 'No download URL found'
-            }, status=404)
+            return JsonResponse({'error': 'File not available'}, status=404)
         
-        # Check if it's a remote URL
-        if download_url.startswith('http://') or download_url.startswith('https://'):
-            log_info("📥 Fetching from Cloudinary...")
-            
+        # Fetch from Cloudinary
+        if download_url.startswith('http'):
             try:
                 import requests as http_requests
                 
@@ -372,16 +387,15 @@ def download_file(request, file_id):
                 log_info(f"📥 Cloudinary response: {response.status_code}")
                 
                 if response.status_code != 200:
-                    log_error(f"📥 Cloudinary returned: {response.status_code}")
+                    log_error(f"📥 Failed: HTTP {response.status_code}")
+                    log_error(f"📥 Response: {response.text[:500]}")
                     return JsonResponse({
                         'error': 'File temporarily unavailable',
-                        'details': f'Storage returned HTTP {response.status_code}'
+                        'details': f'HTTP {response.status_code}'
                     }, status=503)
                 
-                # Get content type
                 content_type = response.headers.get('Content-Type', 'application/octet-stream')
                 
-                # Create response
                 from django.http import HttpResponse
                 django_response = HttpResponse(
                     response.iter_content(chunk_size=8192),
@@ -394,7 +408,6 @@ def download_file(request, file_id):
                 
                 log_info(f"📥 ✅ Download started: {file_obj.original_name}")
                 
-                # Log download
                 try:
                     FileLog.objects.create(user=user, file=file_obj, action='DOWNLOAD')
                 except:
@@ -403,29 +416,18 @@ def download_file(request, file_id):
                 return django_response
                 
             except Exception as e:
-                log_error(f"📥 Download error: {e}")
-                log_error(traceback.format_exc())
-                return JsonResponse({
-                    'error': 'Download failed',
-                    'details': str(e)
-                }, status=500)
+                log_error(f"📥 Error: {e}")
+                return JsonResponse({'error': str(e)}, status=500)
         else:
-            # Local file - won't work on Render
-            log_error("📥 File is local storage - not available")
             return JsonResponse({
                 'error': 'File no longer available',
-                'details': 'This file was uploaded before cloud storage was configured',
                 'solution': 'Please re-upload this file'
             }, status=404)
                     
     except Exception as e:
         log_error(f"📥 Error: {e}")
         log_error(traceback.format_exc())
-        return JsonResponse({
-            'error': 'Download failed',
-            'details': str(e)
-        }, status=500)
-    
+        return JsonResponse({'error': str(e)}, status=500)
 
 @csrf_exempt
 def list_files(request):

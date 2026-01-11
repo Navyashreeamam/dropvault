@@ -43,6 +43,7 @@ class File(models.Model):
     
     cloudinary_url = models.URLField(max_length=500, blank=True, null=True)
     cloudinary_public_id = models.CharField(max_length=255, blank=True, null=True)
+    cloudinary_resource_type = models.CharField(max_length=20, blank=True, null=True)
 
     objects = models.Manager()
     
