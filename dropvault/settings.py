@@ -143,7 +143,8 @@ INSTALLED_APPS = [
     'files',
 ]
 
-# CLOUDINARY SETUP (conditional)
+
+# ☁️ CLOUDINARY SETUP (Django 4.2+ compatible)
 if CLOUDINARY_CONFIGURED:
     # Add cloudinary apps to INSTALLED_APPS
     INSTALLED_APPS.insert(0, 'cloudinary_storage')
@@ -154,20 +155,41 @@ if CLOUDINARY_CONFIGURED:
         'API_KEY': CLOUDINARY_API_KEY,
         'API_SECRET': CLOUDINARY_API_SECRET,
     }
+    
+    # ✅ NEW Django 4.2+ way - use STORAGES
+    STORAGES = {
+        "default": {
+            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+    
+
+    # Also keep old setting for backward compatibility
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+    
     print("✅ Cloudinary configured for file storage")
 else:
     CLOUDINARY_STORAGE = {}
+    
+    # Local storage
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+    
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+    
     print("⚠️ Cloudinary NOT configured - using local storage")
     print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
-    
-
-# DJANGO-ALLAUTH SETTINGS
-AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
-]
 
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
@@ -296,7 +318,7 @@ CORS_PREFLIGHT_MAX_AGE = 86400
 # STATIC & MEDIA FILES
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+#STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files configuration
 if CLOUDINARY_STORAGE.get('CLOUD_NAME'):
