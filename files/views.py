@@ -834,9 +834,21 @@ def debug_storage_config(request):
     """Check if Cloudinary is properly configured"""
     from django.core.files.storage import default_storage
     
-    # Get actual storage backend being used
-    storage_class = type(default_storage).__name__
-    storage_module = type(default_storage).__module__
+    # Get actual storage backend
+    storage_backend = default_storage
+    
+    # For Django 4.2+, get the actual backend
+    actual_backend = storage_backend
+    if hasattr(storage_backend, '_wrapped'):
+        actual_backend = storage_backend._wrapped
+    if hasattr(storage_backend, 'backend'):
+        actual_backend = storage_backend.backend
+    
+    storage_class = type(actual_backend).__name__
+    storage_module = type(actual_backend).__module__
+    
+    # Check STORAGES setting
+    storages_setting = getattr(settings, 'STORAGES', None)
     
     # Check environment variables
     cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
@@ -847,6 +859,13 @@ def debug_storage_config(request):
     cloudinary_storage = getattr(settings, 'CLOUDINARY_STORAGE', {})
     default_file_storage = getattr(settings, 'DEFAULT_FILE_STORAGE', 'NOT SET')
     
+    # Determine if cloudinary is actually being used
+    is_cloudinary = (
+        'cloudinary' in storage_class.lower() or 
+        'cloudinary' in storage_module.lower() or
+        (storages_setting and 'cloudinary' in str(storages_setting.get('default', {})).lower())
+    )
+    
     return json_response({
         'environment_variables': {
             'CLOUDINARY_CLOUD_NAME': cloud_name if cloud_name else 'NOT SET ❌',
@@ -856,6 +875,7 @@ def debug_storage_config(request):
         },
         'django_settings': {
             'DEFAULT_FILE_STORAGE': default_file_storage,
+            'STORAGES': storages_setting,
             'CLOUDINARY_STORAGE': {
                 'CLOUD_NAME': cloudinary_storage.get('CLOUD_NAME', 'NOT SET'),
                 'API_KEY': 'SET' if cloudinary_storage.get('API_KEY') else 'NOT SET',
@@ -865,7 +885,61 @@ def debug_storage_config(request):
         'actual_storage_being_used': {
             'class': storage_class,
             'module': storage_module,
-            'is_cloudinary': 'cloudinary' in storage_module.lower()
+            'raw_type': str(type(actual_backend)),
+            'is_cloudinary': is_cloudinary
         },
-        'diagnosis': 'WORKING ✅' if 'cloudinary' in storage_module.lower() else 'NOT WORKING ❌ - Files going to local storage!'
+        'diagnosis': 'WORKING ✅' if is_cloudinary else 'NOT WORKING ❌ - Files going to local storage!'
     })
+
+@csrf_exempt
+def test_cloudinary_upload(request):
+    """Test if Cloudinary upload actually works"""
+    import cloudinary
+    import cloudinary.uploader
+    from io import BytesIO
+    
+    user = authenticate_request(request)
+    if not user:
+        return json_response({'error': 'Not authenticated'}, status=401)
+    
+    try:
+        # Configure cloudinary directly
+        cloudinary.config(
+            cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+            api_key=os.environ.get('CLOUDINARY_API_KEY'),
+            api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+        )
+        
+        # Create a simple test file
+        test_content = b"This is a test file to verify Cloudinary upload works."
+        test_file = BytesIO(test_content)
+        
+        # Try uploading to Cloudinary directly
+        result = cloudinary.uploader.upload(
+            test_file,
+            folder="test",
+            resource_type="raw",
+            public_id=f"test_upload_{user.id}"
+        )
+        
+        return json_response({
+            'status': 'SUCCESS ✅',
+            'message': 'Cloudinary upload works!',
+            'cloudinary_url': result.get('secure_url'),
+            'public_id': result.get('public_id'),
+            'result': result
+        })
+        
+    except Exception as e:
+        log_error(f"Cloudinary test upload failed: {e}")
+        return json_response({
+            'status': 'FAILED ❌',
+            'error': str(e),
+            'message': 'Cloudinary upload failed. Check your credentials.',
+            'debug': {
+                'cloud_name': os.environ.get('CLOUDINARY_CLOUD_NAME', 'NOT SET'),
+                'api_key_set': bool(os.environ.get('CLOUDINARY_API_KEY')),
+                'api_secret_set': bool(os.environ.get('CLOUDINARY_API_SECRET')),
+            }
+        }, status=500)
+    

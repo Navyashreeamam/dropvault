@@ -75,6 +75,8 @@ urlpatterns = [
     path('s/<slug:slug>/', sharingviews.shared_file_view, name='shared_file'),
     path('s/<slug:slug>/download/', sharingviews.download_shared_file, name='shared_file_download'),
 
+    path('api/test-cloudinary/', file_views.test_cloudinary_upload, name='test_cloudinary'),
+
 ]
 
 if settings.DEBUG:
