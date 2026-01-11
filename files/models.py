@@ -32,17 +32,19 @@ class TrashFileManager(models.Manager):
 class File(models.Model):
     """File model with soft delete functionality"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='files')
-    file = models.FileField(upload_to=user_upload_path)
+    file = models.FileField(upload_to=user_upload_path, blank=True, null=True)
     original_name = models.CharField(max_length=255)
     size = models.PositiveBigIntegerField()
     sha256 = models.CharField(max_length=64, db_index=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    deleted = models.BooleanField(default=False, db_index=True)  # Add this line
+    deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     encryption_meta = models.TextField(default='[]', blank=True)
+    
+    cloudinary_url = models.URLField(max_length=500, blank=True, null=True)
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, null=True)
 
-    # Update managers to use both fields
-    objects = models.Manager()  # Default manager
+    objects = models.Manager()
     
     class Meta:
         ordering = ['-uploaded_at']
@@ -52,25 +54,36 @@ class File(models.Model):
             models.Index(fields=['sha256']),
         ]
 
+    def get_download_url(self):
+        """Get the correct download URL"""
+        # Prefer Cloudinary URL if available
+        if self.cloudinary_url:
+            return self.cloudinary_url
+        # Fallback to file field URL
+        if self.file:
+            try:
+                return self.file.url
+            except:
+                pass
+        return None
+
     def soft_delete(self):
-        """Mark file as deleted without removing from database"""
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save(update_fields=['deleted', 'deleted_at'])
 
     def restore(self):
-        """Restore a soft-deleted file"""
         self.deleted = False
         self.deleted_at = None
         self.save(update_fields=['deleted', 'deleted_at'])
 
     def is_in_trash(self):
-        """Check if file is in trash"""
         return self.deleted or self.deleted_at is not None
 
     def __str__(self):
         status = '🗑️' if self.is_in_trash() else '✅'
         return f"{self.original_name} ({status})"
+    
 
 class Trash(models.Model):
     """Legacy trash model - kept for backward compatibility"""
