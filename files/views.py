@@ -19,6 +19,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.middleware.csrf import get_token
 
 from .models import File, Trash, FileLog, SharedLink
+import requests as http_requests
 
 
 
@@ -114,16 +115,17 @@ def auth_error_response():
         'login_required': True
     }, status=401)
 
+
 @csrf_exempt
 def upload_file(request):
-    """Upload a file - handles POST and OPTIONS"""
+    """Upload a file - FORCES CLOUDINARY STORAGE"""
     
     # Handle OPTIONS preflight
     if request.method == "OPTIONS":
         response = json_response({'status': 'ok'})
         response["Access-Control-Allow-Origin"] = "*"
         response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type, X-CSRFToken"
+        response["Access-Control-Allow-Headers"] = "Content-Type, X-CSRFToken, Authorization"
         return response
     
     if request.method != "POST":
@@ -131,21 +133,18 @@ def upload_file(request):
     
     log_info("=" * 60)
     log_info("📤 UPLOAD REQUEST RECEIVED")
-    log_info(f"📤 Method: {request.method}")
     log_info(f"📤 User: {request.user}")
     log_info(f"📤 Is Authenticated: {request.user.is_authenticated}")
-    log_info(f"📤 Session Key: {request.session.session_key}")
-    log_info(f"📤 Content-Type: {request.content_type}")
-    log_info(f"📤 FILES keys: {list(request.FILES.keys())}")
     log_info("=" * 60)
     
     try:
         # Check authentication
-        if not request.user.is_authenticated:
+        user = authenticate_request(request)
+        if not user:
             log_error("📤 ❌ NOT AUTHENTICATED!")
             return auth_error_response()
         
-        log_info(f"📤 ✅ User authenticated: {request.user.email}")
+        log_info(f"📤 ✅ User authenticated: {user.email}")
         
         # Check for file
         if 'file' not in request.FILES:
@@ -169,17 +168,93 @@ def upload_file(request):
         log_info(f"📤 Hash: {file_hash[:16]}...")
         
         # Check duplicate
-        if File.objects.filter(user=request.user, sha256=file_hash, deleted=False).exists():
+        if File.objects.filter(user=user, sha256=file_hash, deleted=False).exists():
             log_info("📤 ⚠️ Duplicate detected")
             return json_response({
                 'error': 'Duplicate file',
                 'message': 'You already uploaded this file'
             }, status=409)
         
-        # Create file record
+        # ═══════════════════════════════════════════════════════════
+        # ✅ FORCE UPLOAD TO CLOUDINARY
+        # ═══════════════════════════════════════════════════════════
+        cloudinary_url = None
+        cloudinary_public_id = None
+        
+        # Check if Cloudinary is configured
+        cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
+        api_key = os.environ.get('CLOUDINARY_API_KEY')
+        api_secret = os.environ.get('CLOUDINARY_API_SECRET')
+        
+        if cloud_name and api_key and api_secret:
+            log_info("📤 Uploading to Cloudinary...")
+            
+            try:
+                import cloudinary
+                import cloudinary.uploader
+                
+                # Configure Cloudinary
+                cloudinary.config(
+                    cloud_name=cloud_name,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    secure=True
+                )
+                
+                # Generate unique filename
+                import uuid
+                ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
+                unique_name = f"{uuid.uuid4().hex}"
+                if ext:
+                    unique_name = f"{unique_name}.{ext}"
+                
+                # Determine resource type
+                content_type = file.content_type or ''
+                if content_type.startswith('image/'):
+                    resource_type = 'image'
+                elif content_type.startswith('video/'):
+                    resource_type = 'video'
+                else:
+                    resource_type = 'raw'  # For PDFs, docs, etc.
+                
+                # Upload to Cloudinary
+                file.seek(0)  # Reset file pointer
+                upload_result = cloudinary.uploader.upload(
+                    file,
+                    folder=f"user_{user.id}",
+                    public_id=unique_name.rsplit('.', 1)[0] if '.' in unique_name else unique_name,
+                    resource_type=resource_type,
+                    use_filename=False,
+                    unique_filename=True
+                )
+                
+                cloudinary_url = upload_result.get('secure_url')
+                cloudinary_public_id = upload_result.get('public_id')
+                
+                log_info(f"📤 ✅ Uploaded to Cloudinary: {cloudinary_url}")
+                
+            except Exception as e:
+                log_error(f"📤 ❌ Cloudinary upload failed: {e}")
+                log_error(traceback.format_exc())
+                return json_response({
+                    'error': 'Upload failed',
+                    'message': f'Cloudinary error: {str(e)}'
+                }, status=500)
+        else:
+            log_error("📤 ❌ Cloudinary NOT configured!")
+            return json_response({
+                'error': 'Storage not configured',
+                'message': 'Please configure Cloudinary for file storage'
+            }, status=500)
+        
+        # ═══════════════════════════════════════════════════════════
+        # ✅ CREATE FILE RECORD (store Cloudinary URL)
+        # ═══════════════════════════════════════════════════════════
+        file.seek(0)  # Reset file pointer again
+        
         file_obj = File.objects.create(
-            user=request.user,
-            file=file,
+            user=user,
+            file=file,  # This will also trigger Django's storage
             original_name=file.name,
             size=file.size,
             sha256=file_hash,
@@ -187,16 +262,24 @@ def upload_file(request):
             deleted_at=None
         )
         
-        log_info(f"📤 ✅ SUCCESS! File ID: {file_obj.id}")
+        # Update the file field with Cloudinary URL if needed
+        if cloudinary_url and cloudinary_public_id:
+            # Store the Cloudinary public_id in the file field
+            file_obj.file.name = cloudinary_public_id
+            file_obj.save(update_fields=['file'])
         
-        # Log action (ignore errors)
+        log_info(f"📤 ✅ SUCCESS! File ID: {file_obj.id}")
+        log_info(f"📤 Cloudinary URL: {cloudinary_url}")
+        
+        # Log action
         try:
-            FileLog.objects.create(user=request.user, file=file_obj, action='UPLOAD')
+            FileLog.objects.create(user=user, file=file_obj, action='UPLOAD')
         except:
             pass
 
+        # Create notification
         create_user_notification(
-            user=request.user,
+            user=user,
             notification_type='FILE_UPLOAD',
             title='File Uploaded Successfully',
             message=f'"{file_obj.original_name}" has been uploaded.',
@@ -211,7 +294,9 @@ def upload_file(request):
                 'id': file_obj.id,
                 'filename': file_obj.original_name,
                 'size': file_obj.size,
-                'uploaded_at': file_obj.uploaded_at.isoformat()
+                'uploaded_at': file_obj.uploaded_at.isoformat(),
+                'cloudinary_url': cloudinary_url,
+                'storage': 'cloudinary'
             }
         }, status=201)
         
@@ -615,10 +700,9 @@ def restore_file(request, file_id):
         return json_response({'error': str(e)}, status=500)
 
 
-
 @csrf_exempt
 def download_file(request, file_id):
-    """Download user's own file - requires authentication"""
+    """Download user's own file"""
     
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
@@ -632,59 +716,47 @@ def download_file(request, file_id):
             log_error(f"📥 Not authenticated")
             return auth_error_response()
         
-        # Get file and verify ownership
+        # Get file
         try:
             file_obj = File.objects.get(id=file_id, user=user, deleted=False)
         except File.DoesNotExist:
-            log_error(f"📥 File not found or not owned by user")
-            return JsonResponse({
-                'error': 'File not found',
-                'details': 'File does not exist or you do not have permission to download it'
-            }, status=404)
+            log_error(f"📥 File not found")
+            return JsonResponse({'error': 'File not found'}, status=404)
         
         log_info(f"📥 File: {file_obj.original_name} (ID: {file_obj.id})")
         
-        # Check if file field exists
         if not file_obj.file:
-            log_error(f"📥 No file attached to record")
-            return JsonResponse({
-                'error': 'File not found',
-                'details': 'The file record exists but no file is attached'
-            }, status=404)
+            log_error(f"📥 No file attached")
+            return JsonResponse({'error': 'File not found'}, status=404)
         
-        # Check actual file location
+        # Get file URL
         try:
             file_url = file_obj.file.url
             log_info(f"📥 File URL: {file_url}")
+        except Exception as e:
+            log_error(f"📥 Cannot get file URL: {e}")
+            return JsonResponse({'error': 'File URL not available'}, status=500)
+        
+        # DOWNLOAD FROM CLOUDINARY OR REMOTE URL
+        if file_url.startswith('http://') or file_url.startswith('https://'):
+            log_info(f"📥 Downloading from Cloudinary...")
             
-            # Check if this file is in Cloudinary
-            is_cloudinary_file = 'cloudinary' in file_url or 'res.cloudinary.com' in file_url
-            
-            if is_cloudinary_file:
-                log_info(f"📥 File is in Cloudinary")
+            try:
+                import requests as http_requests
                 
-                # Stream from Cloudinary
-                import requests
-                response = requests.get(file_url, stream=True, timeout=30)
+                response = http_requests.get(file_url, stream=True, timeout=60)
                 
                 if response.status_code != 200:
                     log_error(f"📥 Cloudinary fetch failed: {response.status_code}")
                     return JsonResponse({
                         'error': 'File temporarily unavailable',
-                        'details': 'Could not fetch file from storage'
+                        'details': f'HTTP {response.status_code}'
                     }, status=503)
                 
-                log_info(f"📥 Download started: {file_obj.original_name}")
-                
                 # Get content type
-                import mimetypes
                 content_type = response.headers.get('Content-Type', 'application/octet-stream')
-                if not content_type or content_type == 'application/octet-stream':
-                    content_type, _ = mimetypes.guess_type(file_obj.original_name)
-                    if not content_type:
-                        content_type = 'application/octet-stream'
                 
-                # Create streaming response
+                # Create response
                 from django.http import HttpResponse
                 django_response = HttpResponse(
                     response.iter_content(chunk_size=8192),
@@ -695,9 +767,9 @@ def download_file(request, file_id):
                 if 'Content-Length' in response.headers:
                     django_response['Content-Length'] = response.headers['Content-Length']
                 
-                log_info(f"📥 ✅ Streaming from Cloudinary: {file_obj.original_name}")
+                log_info(f"📥 ✅ Download started: {file_obj.original_name}")
                 
-                # Log download action
+                # Log download
                 try:
                     FileLog.objects.create(user=user, file=file_obj, action='DOWNLOAD')
                 except:
@@ -705,26 +777,21 @@ def download_file(request, file_id):
                 
                 return django_response
                 
-            else:
-                # File was uploaded before Cloudinary
-                log_error(f"📥 File is local storage (uploaded before Cloudinary)")
-                log_error(f"📥 File lost due to Render ephemeral storage")
-                
+            except Exception as e:
+                log_error(f"📥 Download error: {e}")
                 return JsonResponse({
-                    'error': 'File no longer available',
-                    'details': 'This file was uploaded before cloud storage was configured',
-                    'solution': 'Please re-upload this file',
-                    'technical': 'File was stored locally and deleted when server restarted'
-                }, status=404)
-                    
-        except Exception as e:
-            log_error(f"📥 File access error: {e}")
-            log_error(traceback.format_exc())
+                    'error': 'Download failed',
+                    'details': str(e)
+                }, status=500)
+
+        else:
+            log_error(f"📥 File is local storage - not available on Render")
             return JsonResponse({
-                'error': 'File access failed',
-                'details': str(e)
-            }, status=500)
-        
+                'error': 'File no longer available',
+                'details': 'This file was uploaded before cloud storage was configured',
+                'solution': 'Please re-upload this file'
+            }, status=404)
+                    
     except Exception as e:
         log_error(f"📥 Download error: {e}")
         log_error(traceback.format_exc())
