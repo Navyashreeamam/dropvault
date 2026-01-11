@@ -216,6 +216,8 @@ def upload_file(request):
             else:
                 resource_type = 'raw'
             
+            log_info(f"📤 Resource type: {resource_type}")
+
             # Upload to Cloudinary
             file.seek(0)
             upload_result = cloudinary.uploader.upload(
@@ -223,6 +225,8 @@ def upload_file(request):
                 folder=f"user_{user.id}",
                 public_id=unique_name,
                 resource_type=resource_type,
+                type='upload',
+                access_mode='public',
                 use_filename=False,
                 unique_filename=True
             )
@@ -231,7 +235,6 @@ def upload_file(request):
             cloudinary_public_id = upload_result.get('public_id')
             
             log_info(f"📤 ✅ Cloudinary URL: {cloudinary_url}")
-            log_info(f"📤 ✅ Public ID: {cloudinary_public_id}")
             
         except Exception as e:
             log_error(f"📤 ❌ Cloudinary upload failed: {e}")
