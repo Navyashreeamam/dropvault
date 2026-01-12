@@ -534,14 +534,6 @@ def api_preferences(request):
 def test_email(request):
     return HttpResponse("OK")
 
-
-def format_file_size(size):
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
 @csrf_exempt
 def api_notifications(request):
     """Get all visible notifications for the user"""
@@ -701,23 +693,6 @@ def api_notification_delete(request, notification_id):
 def upload_test(request):
     return render(request, 'upload_test.html')
 
-@login_required
-def api_user_storage(request):
-    """Return user's storage information"""
-    user = request.user
-    
-    return JsonResponse({
-        'storage': {
-            'used': user.storage_used,
-            'used_formatted': format_file_size(user.storage_used),
-            'limit': user.storage_limit,
-            'limit_formatted': format_file_size(user.storage_limit),
-            'remaining': user.storage_remaining,
-            'remaining_formatted': format_file_size(user.storage_remaining),
-            'percentage': user.storage_percentage,
-        }
-    })
-
 
 def format_file_size(size_bytes):
     """Convert bytes to human readable format"""
@@ -733,3 +708,45 @@ def format_file_size(size_bytes):
         unit_index += 1
     
     return f"{size:.2f} {units[unit_index]}"
+
+@csrf_exempt
+def api_user_storage(request):
+    """Return user's storage information"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        # Calculate storage from files
+        from files.models import File
+        from django.db.models import Sum
+        
+        total_storage = File.objects.filter(
+            user=user, 
+            deleted=False
+        ).aggregate(total=Sum('size'))['total'] or 0
+        
+        # Storage limit (10GB default)
+        storage_limit = 10 * 1024 * 1024 * 1024  # 10GB in bytes
+        storage_remaining = max(0, storage_limit - total_storage)
+        storage_percentage = round((total_storage / storage_limit) * 100, 2) if storage_limit > 0 else 0
+        
+        return JsonResponse({
+            'success': True,
+            'storage': {
+                'used': total_storage,
+                'used_formatted': format_file_size(total_storage),
+                'limit': storage_limit,
+                'limit_formatted': format_file_size(storage_limit),
+                'remaining': storage_remaining,
+                'remaining_formatted': format_file_size(storage_remaining),
+                'percentage': storage_percentage,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Storage API error: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
