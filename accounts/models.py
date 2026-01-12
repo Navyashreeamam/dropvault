@@ -3,6 +3,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from datetime import timedelta
+from django.contrib.auth.models import AbstractUser
+
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -121,3 +123,26 @@ class Notification(models.Model):
             file_name=file_name,
             file_id=file_id
         )
+
+class CustomUser(AbstractUser):
+    # Storage tracking
+    storage_used = models.BigIntegerField(default=0)  # in bytes
+    storage_limit = models.BigIntegerField(default=1073741824)  # 1GB default
+    
+    @property
+    def storage_used_mb(self):
+        return round(self.storage_used / (1024 * 1024), 2)
+    
+    @property
+    def storage_limit_mb(self):
+        return round(self.storage_limit / (1024 * 1024), 2)
+    
+    @property
+    def storage_percentage(self):
+        if self.storage_limit == 0:
+            return 0
+        return round((self.storage_used / self.storage_limit) * 100, 2)
+    
+    @property
+    def storage_remaining(self):
+        return self.storage_limit - self.storage_used

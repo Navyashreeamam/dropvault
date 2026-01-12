@@ -700,3 +700,36 @@ def api_notification_delete(request, notification_id):
 @login_required
 def upload_test(request):
     return render(request, 'upload_test.html')
+
+@login_required
+def api_user_storage(request):
+    """Return user's storage information"""
+    user = request.user
+    
+    return JsonResponse({
+        'storage': {
+            'used': user.storage_used,
+            'used_formatted': format_file_size(user.storage_used),
+            'limit': user.storage_limit,
+            'limit_formatted': format_file_size(user.storage_limit),
+            'remaining': user.storage_remaining,
+            'remaining_formatted': format_file_size(user.storage_remaining),
+            'percentage': user.storage_percentage,
+        }
+    })
+
+
+def format_file_size(size_bytes):
+    """Convert bytes to human readable format"""
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    return f"{size:.2f} {units[unit_index]}"

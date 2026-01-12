@@ -17,6 +17,8 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.views.decorators.csrf import csrf_exempt
 from django.middleware.csrf import get_token
+from django.db.models import Sum
+from .models import File
 
 from .models import File, Trash, FileLog, SharedLink
 import requests as http_requests
@@ -1294,3 +1296,59 @@ def test_cloudinary_pdf(request):
             results['signed_url_error'] = str(e)
     
     return json_response(results)
+
+def update_user_storage(user):
+    """Recalculate user's total storage used"""
+    total_size = File.objects.filter(
+        user=user, 
+        is_deleted=False
+    ).aggregate(total=Sum('size'))['total'] or 0
+    
+    user.storage_used = total_size
+    user.save(update_fields=['storage_used'])
+    return total_size
+
+
+@login_required
+def upload_file(request):
+    if request.method == 'POST':
+        file = request.FILES.get('file')
+        user = request.user
+        
+        # Check storage limit BEFORE upload
+        if user.storage_used + file.size > user.storage_limit:
+            return JsonResponse({
+                'error': 'Storage limit exceeded',
+                'storage_used': user.storage_used,
+                'storage_limit': user.storage_limit,
+                'file_size': file.size
+            }, status=400)
+        
+        # Save file...
+        new_file = File.objects.create(
+            user=user,
+            file=file,
+            name=file.name,
+            size=file.size
+        )
+        
+        # Update storage used
+        update_user_storage(user)
+        
+        return JsonResponse({
+            'success': True,
+            'file_id': new_file.id,
+            'storage_used': user.storage_used,
+            'storage_percentage': user.storage_percentage
+        })
+
+
+@login_required  
+def delete_file(request, file_id):
+    file = File.objects.get(id=file_id, user=request.user)
+    file.delete()
+    
+    # Update storage after deletion
+    update_user_storage(request.user)
+    
+    return JsonResponse({'success': True})
