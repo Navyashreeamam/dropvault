@@ -709,6 +709,7 @@ def format_file_size(size_bytes):
     
     return f"{size:.2f} {units[unit_index]}"
 
+
 @csrf_exempt
 def api_user_storage(request):
     """Return user's storage information"""
@@ -724,15 +725,21 @@ def api_user_storage(request):
         from files.models import File
         from django.db.models import Sum
         
+        # Get total storage used (only non-deleted files)
         total_storage = File.objects.filter(
             user=user, 
             deleted=False
         ).aggregate(total=Sum('size'))['total'] or 0
         
+        # Get file count
+        file_count = File.objects.filter(user=user, deleted=False).count()
+        
         # Storage limit (10GB default)
         storage_limit = 10 * 1024 * 1024 * 1024  # 10GB in bytes
         storage_remaining = max(0, storage_limit - total_storage)
         storage_percentage = round((total_storage / storage_limit) * 100, 2) if storage_limit > 0 else 0
+        
+        logger.info(f"📊 Storage for {user.email}: {total_storage} bytes, {file_count} files")
         
         return JsonResponse({
             'success': True,
@@ -744,9 +751,12 @@ def api_user_storage(request):
                 'remaining': storage_remaining,
                 'remaining_formatted': format_file_size(storage_remaining),
                 'percentage': storage_percentage,
+                'file_count': file_count,
             }
         })
         
     except Exception as e:
         logger.error(f"Storage API error: {e}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)

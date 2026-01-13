@@ -1297,11 +1297,12 @@ def test_cloudinary_pdf(request):
     
     return json_response(results)
 
+
 def update_user_storage(user):
     """Recalculate user's total storage used"""
     total_size = File.objects.filter(
-        user=user, 
-        is_deleted=False
+        user=user,
+        deleted=False
     ).aggregate(total=Sum('size'))['total'] or 0
     
     user.storage_used = total_size
