@@ -117,6 +117,7 @@ CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
 CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
 
 
+
 # INSTALLED APPS
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -156,7 +157,6 @@ if CLOUDINARY_CONFIGURED:
         'API_SECRET': CLOUDINARY_API_SECRET,
     }
     
-    # ✅ NEW Django 4.2+ way - use STORAGES
     STORAGES = {
         "default": {
             "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
