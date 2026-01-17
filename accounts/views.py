@@ -23,6 +23,9 @@ from .models import UserProfile
 from files.models import File
 
 from django.views.decorators.http import require_http_methods
+from django.db import transaction
+from django.utils import timezone
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -1152,6 +1155,136 @@ def api_fix_oauth_user(request):
         
     except Exception as e:
         logger.error(f"Fix user error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def api_request_password_reset(request):
+    """
+    Allow OAuth users to request a password reset link.
+    Temporary solution for users who don't know their random password.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        
+        if not email:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email is required'
+            }, status=400)
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Don't reveal if email exists or not (security)
+            return JsonResponse({
+                'success': True,
+                'message': 'If this email exists, a password reset link has been sent.'
+            })
+        
+        # Generate temporary token
+        import secrets
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        reset_token = secrets.token_urlsafe(32)
+        
+        # Store token in user profile
+        profile, created = UserProfile.objects.get_or_create(user=user)
+        profile.verification_token = reset_token  # Reuse this field
+        profile.save()
+        
+        # Create reset link
+        reset_link = f"{settings.SITE_URL}/reset-password/{reset_token}/"
+        
+        # Send email (or just return link for testing)
+        logger.info(f"📧 Password reset requested for: {email}")
+        logger.info(f"🔗 Reset link: {reset_link}")
+        
+        # TODO: Send actual email here
+        # For now, return the link in response (FOR TESTING ONLY)
+        return JsonResponse({
+            'success': True,
+            'message': 'Password reset link generated',
+            'reset_link': reset_link,  # Remove this in production
+            'note': 'In production, this would be sent via email'
+        })
+        
+    except Exception as e:
+        logger.error(f"Password reset error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def api_reset_password(request):
+    """
+    Reset password using token from email.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    try:
+        data = json.loads(request.body)
+        token = data.get('token')
+        new_password = data.get('password')
+        confirm_password = data.get('confirm_password')
+        
+        if not all([token, new_password, confirm_password]):
+            return JsonResponse({
+                'success': False,
+                'error': 'Token and passwords are required'
+            }, status=400)
+        
+        if new_password != confirm_password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Passwords do not match'
+            }, status=400)
+        
+        if len(new_password) < 8:
+            return JsonResponse({
+                'success': False,
+                'error': 'Password must be at least 8 characters'
+            }, status=400)
+        
+        # Find user with this token
+        try:
+            profile = UserProfile.objects.get(verification_token=token)
+            user = profile.user
+        except UserProfile.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid or expired reset link'
+            }, status=400)
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        # Clear token
+        profile.verification_token = ''
+        profile.save()
+        
+        logger.info(f"✅ Password reset successful for: {user.email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Password reset successfully! You can now login with your new password.'
+        })
+        
+    except Exception as e:
+        logger.error(f"Password reset error: {e}")
         return JsonResponse({
             'success': False,
             'error': str(e)
