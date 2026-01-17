@@ -170,22 +170,25 @@ INSTALLED_APPS = [
     'files',
 ]
 
-# ✅ Add Cloudinary ONLY if configured (no duplicates)
+# ✅ Add Cloudinary ONLY if configured
 if CLOUDINARY_CONFIGURED:
-    INSTALLED_APPS.insert(0, 'cloudinary_storage')
-    INSTALLED_APPS.insert(1, 'cloudinary')
+    # Add cloudinary_storage BEFORE django.contrib.staticfiles
+    if 'cloudinary_storage' not in INSTALLED_APPS:
+        INSTALLED_APPS.insert(INSTALLED_APPS.index('django.contrib.staticfiles'), 'cloudinary_storage')
+    # Add cloudinary app
+    if 'cloudinary' not in INSTALLED_APPS:
+        INSTALLED_APPS.append('cloudinary')
 
 # ============================================================================
 # STORAGE CONFIGURATION (Django 4.2+ way)
 # ============================================================================
 if CLOUDINARY_CONFIGURED:
-    # ✅ FIXED: Cloudinary for media, WhiteNoise for static (non-manifest)
+    # ✅ Cloudinary for media, WhiteNoise for static
     STORAGES = {
         "default": {
             "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
         },
         "staticfiles": {
-            # ✅ CRITICAL FIX: Use CompressedStaticFilesStorage (no Manifest)
             "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
@@ -200,9 +203,14 @@ else:
         },
     }
 
-# ✅ CRITICAL: Tell WhiteNoise to ignore missing files (Cloudinary's static files)
+# ✅ CRITICAL FIX: Backward compatibility for django-cloudinary-storage
+# The package still checks for deprecated STATICFILES_STORAGE setting
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+
+# ✅ CRITICAL: Tell WhiteNoise to ignore missing files
 WHITENOISE_MANIFEST_STRICT = False
 WHITENOISE_ALLOW_ALL_ORIGINS = True
+
 
 # ============================================================================
 # ALLAUTH SETTINGS
