@@ -8,7 +8,9 @@ logging.basicConfig(level=logging.INFO)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ============================================================================
 # LOAD .ENV FILE
+# ============================================================================
 from dotenv import load_dotenv
 
 env_path = BASE_DIR / '.env'
@@ -19,19 +21,22 @@ if env_path.exists():
 else:
     print(f"⚠️  .env file NOT found at: {env_path}")
 
-
+# ============================================================================
 # ENVIRONMENT DETECTION
+# ============================================================================
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 IS_RENDER = os.environ.get('RENDER') is not None
+IS_PRODUCTION = IS_RAILWAY or IS_RENDER
 
 print(f"✅ Starting DropVault settings...")
 print(f"IS_RAILWAY: {IS_RAILWAY}")
 print(f"IS_RENDER: {IS_RENDER}")
 
-
+# ============================================================================
 # SECURITY SETTINGS
+# ============================================================================
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-this-in-production')
-DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [
     'localhost',
@@ -49,8 +54,9 @@ if IS_RAILWAY or IS_RENDER:
     USE_X_FORWARDED_HOST = True
     USE_X_FORWARDED_PORT = True
 
-
+# ============================================================================
 # SITE URL CONFIGURATION
+# ============================================================================
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
 
 if IS_RENDER and RENDER_EXTERNAL_HOSTNAME:
@@ -66,8 +72,9 @@ else:
 
 print(f"✅ SITE_URL: {SITE_URL}")
 
-
+# ============================================================================
 # EMAIL CONFIGURATION
+# ============================================================================
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
@@ -88,36 +95,55 @@ else:
     DEFAULT_FROM_EMAIL = 'DropVault <noreply@dropvault.com>'
     print("⚠️ Email: Console only")
 
+# ============================================================================
 # DATABASE CONFIGURATION
+# ============================================================================
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
-if DATABASE_URL and DATABASE_URL.startswith('postgres'):
-    print(f"✅ Using DATABASE_URL from environment")
+if DATABASE_URL:
+    print("✅ Using DATABASE_URL from environment")
     DATABASES = {
-        'default': dj_database_url.config(
-            default=DATABASE_URL,
+        'default': dj_database_url.parse(
+            DATABASE_URL,
             conn_max_age=600,
             conn_health_checks=True,
         )
     }
 else:
-    print("⚠️ Using SQLite database")
+    print("⚠️  Using default PostgreSQL settings")
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'dropvault'),
+            'USER': os.environ.get('DB_USER', 'postgres'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
         }
     }
 
-
-# CLOUDINARY CONFIGURATION (check BEFORE installed apps)
-CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
-CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
-CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
+# ============================================================================
+# CLOUDINARY CONFIGURATION
+# ============================================================================
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '').strip()
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '').strip()
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '').strip()
 CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
 
+if CLOUDINARY_CONFIGURED:
+    CLOUDINARY_STORAGE = {
+        'CLOUD_NAME': CLOUDINARY_CLOUD_NAME,
+        'API_KEY': CLOUDINARY_API_KEY,
+        'API_SECRET': CLOUDINARY_API_SECRET,
+    }
+    print("✅ Cloudinary configured for file storage")
+else:
+    CLOUDINARY_STORAGE = {}
+    print("⚠️ Cloudinary NOT configured - using local storage")
 
+# ============================================================================
 # INSTALLED APPS
+# ============================================================================
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -127,6 +153,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     'django.contrib.sites',
 
+    # Third-party apps
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -143,55 +170,44 @@ INSTALLED_APPS = [
     'files',
 ]
 
-
-# ☁️ CLOUDINARY SETUP (Django 4.2+ compatible)
+# ✅ Add Cloudinary ONLY if configured (no duplicates)
 if CLOUDINARY_CONFIGURED:
-    # Add cloudinary apps to INSTALLED_APPS
     INSTALLED_APPS.insert(0, 'cloudinary_storage')
-    INSTALLED_APPS.append('cloudinary')
-    
-    CLOUDINARY_STORAGE = {
-        'CLOUD_NAME': CLOUDINARY_CLOUD_NAME,
-        'API_KEY': CLOUDINARY_API_KEY,
-        'API_SECRET': CLOUDINARY_API_SECRET,
-    }
-    
-    # ✅ NEW Django 4.2+ way - use STORAGES
+    INSTALLED_APPS.insert(1, 'cloudinary')
+
+# ============================================================================
+# STORAGE CONFIGURATION (Django 4.2+ way)
+# ============================================================================
+if CLOUDINARY_CONFIGURED:
+    # ✅ FIXED: Cloudinary for media, WhiteNoise for static (non-manifest)
     STORAGES = {
         "default": {
             "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            # ✅ CRITICAL FIX: Use CompressedStaticFilesStorage (no Manifest)
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
-    
-
-    # Also keep old setting for backward compatibility
-    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-    
-    print("✅ Cloudinary configured for file storage")
 else:
-    CLOUDINARY_STORAGE = {}
-    
-    # Local storage
+    # Local storage for both
     STORAGES = {
         "default": {
             "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
-    
-    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
-    
-    print("⚠️ Cloudinary NOT configured - using local storage")
-    print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
 
+# ✅ CRITICAL: Tell WhiteNoise to ignore missing files (Cloudinary's static files)
+WHITENOISE_MANIFEST_STRICT = False
+WHITENOISE_ALLOW_ALL_ORIGINS = True
 
+# ============================================================================
+# ALLAUTH SETTINGS
+# ============================================================================
+SITE_ID = 1
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 ACCOUNT_LOGOUT_ON_GET = False
@@ -201,8 +217,9 @@ LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/'
 ACCOUNT_LOGOUT_REDIRECT_URL = '/'
 
-
+# ============================================================================
 # PASSWORD VALIDATION
+# ============================================================================
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
     'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
@@ -216,14 +233,14 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
+# ============================================================================
 # MIDDLEWARE
+# ============================================================================
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Must be after SecurityMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
-    #'accounts.middleware.SessionCleanupMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -231,24 +248,25 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_otp.middleware.OTPMiddleware',
     'allauth.account.middleware.AccountMiddleware',
-    #'accounts.middleware.EmailVerificationMiddleware',
 ]
 
 ROOT_URLCONF = 'dropvault.urls'
 
-# SESSION & COOKIE CONFIGURATION - FIXED!
+# ============================================================================
+# SESSION & COOKIE CONFIGURATION
+# ============================================================================
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_NAME = 'dropvault_sessionid'
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_SAVE_EVERY_REQUEST = True
-
-# CRITICAL: These must be set ONCE and correctly for cross-origin
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'None'  # Required for cross-origin
 SESSION_COOKIE_SECURE = True      # Required when SameSite=None
 
-# CSRF settings
+# ============================================================================
+# CSRF SETTINGS
+# ============================================================================
 CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = False  # Must be False so JS can read it
@@ -263,7 +281,9 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.onrender.com",
 ]
 
+# ============================================================================
 # CORS CONFIGURATION
+# ============================================================================
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -275,15 +295,12 @@ CORS_ALLOWED_ORIGINS = [
     "https://dropvaultnew-frontend.onrender.com",
 ]
 
-# Allow all onrender.com subdomains
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.onrender\.com$",
 ]
 
-# Allow credentials (cookies, auth headers)
 CORS_ALLOW_CREDENTIALS = True
 
-# CRITICAL - Include ALL custom headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -313,36 +330,51 @@ CORS_EXPOSE_HEADERS = [
     'Set-Cookie',
 ]
 
-# Preflight cache - browser won't repeat OPTIONS for 24 hours
 CORS_PREFLIGHT_MAX_AGE = 86400
 
-
-# STATIC & MEDIA FILES
+# ============================================================================
+# STATIC FILES
+# ============================================================================
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
-#STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media files configuration
-if CLOUDINARY_STORAGE.get('CLOUD_NAME'):
-    # Using Cloudinary - no local MEDIA_ROOT needed
-    MEDIA_URL = '/media/'
-else:
-    # Using local storage (development)
-    MEDIA_URL = '/media/'
+# Only include static directory if it exists
+STATICFILES_DIRS = []
+if (BASE_DIR / 'static').exists():
+    STATICFILES_DIRS.append(BASE_DIR / 'static')
+
+# ============================================================================
+# MEDIA FILES
+# ============================================================================
+MEDIA_URL = '/media/'
+if not CLOUDINARY_CONFIGURED:
     MEDIA_ROOT = BASE_DIR / 'media'
 
+# ============================================================================
+# UPLOAD LIMITS
+# ============================================================================
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800   # 50MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800   # 50MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
+# ============================================================================
 # SECURITY SETTINGS
-SECURE_SSL_REDIRECT = False
+# ============================================================================
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
-# UPLOAD LIMITS
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+if IS_PRODUCTION and not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+else:
+    SECURE_SSL_REDIRECT = False
 
-
+# ============================================================================
 # CACHE
+# ============================================================================
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -353,7 +385,9 @@ CACHES = {
 RATELIMIT_USE_CACHE = 'default'
 SILENCED_SYSTEM_CHECKS = ['django_ratelimit.E003', 'django_ratelimit.W001']
 
+# ============================================================================
 # REST FRAMEWORK
+# ============================================================================
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -364,7 +398,9 @@ REST_FRAMEWORK = {
     ],
 }
 
+# ============================================================================
 # LOGGING
+# ============================================================================
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -404,9 +440,9 @@ LOGGING = {
     },
 }
 
+# ============================================================================
 # TEMPLATES
-ROOT_URLCONF = 'dropvault.urls'
-
+# ============================================================================
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -425,12 +461,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'dropvault.wsgi.application'
 
+# ============================================================================
 # INTERNATIONALIZATION
+# ============================================================================
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
+# ============================================================================
+# OTHER SETTINGS
+# ============================================================================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+AUTH_USER_MODEL = 'accounts.User'
 
 print("✅ Settings loaded successfully!")
