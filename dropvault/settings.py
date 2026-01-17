@@ -177,10 +177,6 @@ INSTALLED_APPS = [
 
 # ✅ Add Cloudinary ONLY if configured
 if CLOUDINARY_CONFIGURED:
-    # Add cloudinary_storage BEFORE django.contrib.staticfiles
-    if 'cloudinary_storage' not in INSTALLED_APPS:
-        INSTALLED_APPS.insert(INSTALLED_APPS.index('django.contrib.staticfiles'), 'cloudinary_storage')
-    # Add cloudinary app
     if 'cloudinary' not in INSTALLED_APPS:
         INSTALLED_APPS.append('cloudinary')
 
