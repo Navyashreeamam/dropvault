@@ -4,12 +4,16 @@ from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models import UserProfile
 
+
 @receiver(post_save, sender=User)
-def create_or_update_user_profile(sender, instance, created, **kwargs):
+def create_user_profile(sender, instance, created, **kwargs):
+    """Create UserProfile when User is created"""
     if created:
-        UserProfile.objects.get_or_create(user=instance)
-        
-    # Ensure email is set from username if missing
-    if not instance.email and '@' in instance.username:
-        instance.email = instance.username
-        instance.save(update_fields=['email'])
+        UserProfile.objects.create(user=instance)
+
+
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    """Save UserProfile when User is saved"""
+    if hasattr(instance, 'profile'):
+        instance.profile.save()

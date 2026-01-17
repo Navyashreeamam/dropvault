@@ -473,6 +473,6 @@ USE_TZ = True
 # OTHER SETTINGS
 # ============================================================================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-AUTH_USER_MODEL = 'accounts.User'
+# AUTH_USER_MODEL = 'accounts.User'
 
 print("✅ Settings loaded successfully!")
