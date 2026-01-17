@@ -156,14 +156,18 @@ def disable_mfa(request):
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def api_set_password(request):
-    """Allow OAuth users to set a password"""
+    """
+    Allow OAuth users to set a password for email+password login.
+    Can be called while user is logged in via OAuth.
+    """
     if request.method == "OPTIONS":
         return JsonResponse({}, status=200)
     
+    # Must be authenticated (logged in via Google)
     if not request.user.is_authenticated:
         return JsonResponse({
             'success': False,
-            'error': 'Authentication required'
+            'error': 'You must be logged in to set a password'
         }, status=401)
     
     try:
@@ -171,10 +175,11 @@ def api_set_password(request):
         new_password = data.get('password')
         confirm_password = data.get('confirm_password')
         
+        # Validate input
         if not new_password or not confirm_password:
             return JsonResponse({
                 'success': False,
-                'error': 'Password and confirmation required'
+                'error': 'Password and confirmation are required'
             }, status=400)
         
         if new_password != confirm_password:
@@ -186,26 +191,60 @@ def api_set_password(request):
         if len(new_password) < 8:
             return JsonResponse({
                 'success': False,
-                'error': 'Password must be at least 8 characters'
+                'error': 'Password must be at least 8 characters long'
             }, status=400)
         
-        # Set password
+        # Set the password
         request.user.set_password(new_password)
         request.user.save()
+        
+        # Update session to prevent logout
+        from django.contrib.auth import update_session_auth_hash
+        update_session_auth_hash(request, request.user)
         
         logger.info(f"✅ Password set for user: {request.user.email}")
         
         return JsonResponse({
             'success': True,
-            'message': 'Password set successfully. You can now login with email and password.'
+            'message': 'Password set successfully! You can now login with email and password.',
+            'has_password': True
         })
         
     except Exception as e:
-        logger.error(f"Set password error: {str(e)}")
+        logger.error(f"❌ Set password error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': f'Failed to set password: {str(e)}'
         }, status=500)
+
+
+@require_http_methods(["GET", "OPTIONS"])
+def api_check_user_password_status(request):
+    """
+    Check if the current logged-in user has a password set.
+    Used by frontend to show "Set Password" option.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    if not request.user.is_authenticated:
+        return JsonResponse({
+            'success': False,
+            'error': 'Not authenticated'
+        }, status=401)
+    
+    return JsonResponse({
+        'success': True,
+        'has_password': request.user.has_usable_password(),
+        'email': request.user.email,
+        'username': request.user.username,
+        'login_methods': {
+            'google': True,  # If they're logged in, Google worked
+            'password': request.user.has_usable_password()
+        }
+    })
 
 @csrf_exempt
 def api_signup(request):
@@ -461,6 +500,39 @@ def api_dashboard(request):
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
+
+@login_required
+@require_http_methods(["GET", "OPTIONS"])
+def api_user(request):
+    """Get current user details"""
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    user = request.user
+    
+    # Get user profile if exists
+    profile = None
+    try:
+        profile = user.profile
+    except:
+        # Create profile if missing
+        from accounts.models import UserProfile
+        profile = UserProfile.objects.create(user=user)
+    
+    return JsonResponse({
+        'success': True,
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'has_password': user.has_usable_password(),  # ← ADD THIS
+            'storage_used': profile.storage_used if profile else 0,
+            'storage_limit': profile.storage_limit if profile else 1073741824,
+            'storage_percentage': profile.storage_percentage if profile else 0,
+        }
+    })
 
 @csrf_exempt
 def api_user_profile(request):

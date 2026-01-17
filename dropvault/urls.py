@@ -34,7 +34,7 @@ urlpatterns = [
     path('api/auth/google/', accounts_views.api_google_login, name='api_google_login'),
     path('api/set-password/', accounts_views.api_set_password, name='api_set_password'),
     path('api/debug-user/', accounts_views.api_debug_user, name='api_debug_user'),
-
+    path('api/check-password-status/', accounts_views.api_check_user_password_status, name='api_check_password_status'),
     
     # USER APIs
     path('api/user/', accounts_views.api_user_profile, name='api_user_profile'),
