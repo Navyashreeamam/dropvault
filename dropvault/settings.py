@@ -146,6 +146,7 @@ INSTALLED_APPS = [
 
 # ☁️ CLOUDINARY SETUP (Django 4.2+ compatible)
 if CLOUDINARY_CONFIGURED:
+    # Add cloudinary apps to INSTALLED_APPS
     INSTALLED_APPS.insert(0, 'cloudinary_storage')
     INSTALLED_APPS.append('cloudinary')
     
@@ -155,25 +156,40 @@ if CLOUDINARY_CONFIGURED:
         'API_SECRET': CLOUDINARY_API_SECRET,
     }
     
+    # ✅ NEW Django 4.2+ way - use STORAGES
+    STORAGES = {
+        "default": {
+            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+    
+
+    # Also keep old setting for backward compatibility
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+    
     print("✅ Cloudinary configured for file storage")
 else:
     CLOUDINARY_STORAGE = {}
+    
+    # Local storage
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+    
     DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+    
     print("⚠️ Cloudinary NOT configured - using local storage")
-
-# ✅ STATIC FILES - Simple setup that works on Render
-STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-
-STORAGES = {
-    "default": {
-        "BACKEND": DEFAULT_FILE_STORAGE,
-    },
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-    },
-}
-
+    print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
 
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
