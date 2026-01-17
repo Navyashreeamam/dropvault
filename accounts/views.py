@@ -22,6 +22,8 @@ from rest_framework.authtoken.models import Token
 from .models import UserProfile
 from files.models import File
 
+from django.views.decorators.http import require_http_methods
+
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
@@ -152,6 +154,60 @@ def disable_mfa(request):
     return render(request, 'disable_mfa.html')
 
 @csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def api_set_password(request):
+    """Allow OAuth users to set a password"""
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    if not request.user.is_authenticated:
+        return JsonResponse({
+            'success': False,
+            'error': 'Authentication required'
+        }, status=401)
+    
+    try:
+        data = json.loads(request.body)
+        new_password = data.get('password')
+        confirm_password = data.get('confirm_password')
+        
+        if not new_password or not confirm_password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Password and confirmation required'
+            }, status=400)
+        
+        if new_password != confirm_password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Passwords do not match'
+            }, status=400)
+        
+        if len(new_password) < 8:
+            return JsonResponse({
+                'success': False,
+                'error': 'Password must be at least 8 characters'
+            }, status=400)
+        
+        # Set password
+        request.user.set_password(new_password)
+        request.user.save()
+        
+        logger.info(f"✅ Password set for user: {request.user.email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Password set successfully. You can now login with email and password.'
+        })
+        
+    except Exception as e:
+        logger.error(f"Set password error: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@csrf_exempt
 def api_signup(request):
     if request.method == "OPTIONS":
         return JsonResponse({})
@@ -193,8 +249,9 @@ def api_signup(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 @csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
 def api_login(request):
-    """API endpoint for user login"""
+    """API endpoint for user login with detailed debugging"""
     if request.method == "OPTIONS":
         return JsonResponse({}, status=200)
     
@@ -203,60 +260,94 @@ def api_login(request):
         email_or_username = data.get('email') or data.get('username')
         password = data.get('password')
         
-        logger.info(f"🔐 Login: {email_or_username}")
+        logger.info(f"🔐 Login attempt: {email_or_username}")
         
+        # Validate input
         if not email_or_username or not password:
+            logger.warning("❌ Missing email/password")
             return JsonResponse({
                 'success': False,
                 'error': 'Email/username and password are required'
             }, status=400)
         
-        # Try to find user by email first, then username
+        # Try to find user
         user = None
+        lookup_method = None
+        
         if '@' in email_or_username:
-            # It's an email
+            # Email lookup
             try:
                 user = User.objects.get(email=email_or_username)
+                lookup_method = 'email'
+                logger.info(f"   ✅ Found user by email: {user.username}")
             except User.DoesNotExist:
-                pass
-        
-        if not user:
-            # Try username
+                logger.warning(f"   ❌ No user found with email: {email_or_username}")
+        else:
+            # Username lookup
             try:
                 user = User.objects.get(username=email_or_username)
+                lookup_method = 'username'
+                logger.info(f"   ✅ Found user by username: {user.username}")
             except User.DoesNotExist:
-                pass
+                logger.warning(f"   ❌ No user found with username: {email_or_username}")
         
+        # User not found
         if not user:
-            logger.warning(f"❌ User not found: {email_or_username}")
             return JsonResponse({
                 'success': False,
-                'error': 'Invalid credentials'
-            }, status=401)
-        
-        # Check password
-        if not user.check_password(password):
-            logger.warning(f"❌ Invalid password for: {email_or_username}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid credentials'
+                'error': 'Invalid credentials - User not found'
             }, status=401)
         
         # Check if user is active
         if not user.is_active:
+            logger.warning(f"   ❌ User is inactive: {user.username}")
             return JsonResponse({
                 'success': False,
                 'error': 'Account is disabled'
             }, status=403)
         
-        # Login the user (create session)
-        login(request, user)
+        # ⚠️ CRITICAL CHECK: Does user have a usable password?
+        if not user.has_usable_password():
+            logger.warning(f"   ❌ User has no password (OAuth account): {user.username}")
+            return JsonResponse({
+                'success': False,
+                'error': 'This account was created with Google Sign-In. Please use Google to login.',
+                'oauth_account': True
+            }, status=401)
+        
+        # Check password
+        logger.info(f"   🔑 Checking password for user: {user.username}")
+        logger.info(f"   Password field starts with: {user.password[:20]}...")
+        
+        if not user.check_password(password):
+            logger.warning(f"   ❌ Invalid password for user: {user.username}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid credentials - Incorrect password'
+            }, status=401)
+        
+        # ✅ All checks passed - login user
+        logger.info(f"   ✅ Password correct, logging in user: {user.username}")
+        
+        # Django's authenticate() for extra security checks
+        authenticated_user = authenticate(request, username=user.username, password=password)
+        
+        if not authenticated_user:
+            logger.error(f"   ❌ authenticate() failed for user: {user.username}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Authentication failed'
+            }, status=401)
+        
+        # Create session
+        login(request, authenticated_user)
+        logger.info(f"   ✅ Session created for user: {user.username}")
         
         # Create or get auth token
         from rest_framework.authtoken.models import Token
-        token, created = Token.objects.get_or_create(user=user)
+        token, created = Token.objects.get_or_create(user=authenticated_user)
         
-        logger.info(f"✅ Login successful: {user.email}")
+        logger.info(f"✅ LOGIN SUCCESS: {user.email} (token: {token.key[:10]}...)")
         
         return JsonResponse({
             'success': True,
@@ -271,19 +362,21 @@ def api_login(request):
             'token': token.key,
         })
         
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in request: {str(e)}")
         return JsonResponse({
             'success': False,
             'error': 'Invalid JSON'
         }, status=400)
     except Exception as e:
-        logger.error(f"Login error: {str(e)}")
+        logger.error(f"❌ Login error: {str(e)}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return JsonResponse({
             'success': False,
-            'error': 'An error occurred during login'
+            'error': f'An error occurred during login: {str(e)}'
         }, status=500)
+
 
 @csrf_exempt
 def api_logout(request):
@@ -811,3 +904,41 @@ def api_user_storage(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["GET", "OPTIONS"])
+def api_debug_user(request):
+    """Debug endpoint to check user details"""
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    email = request.GET.get('email')
+    
+    if not email:
+        return JsonResponse({
+            'success': False,
+            'error': 'Email parameter required'
+        }, status=400)
+    
+    try:
+        user = User.objects.get(email=email)
+        
+        return JsonResponse({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_active': user.is_active,
+                'has_usable_password': user.has_usable_password(),
+                'password_field': user.password[:50] + '...' if user.password else 'None',
+                'date_joined': user.date_joined.isoformat(),
+                'last_login': user.last_login.isoformat() if user.last_login else None,
+            }
+        })
+        
+    except User.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'User not found'
+        }, status=404)

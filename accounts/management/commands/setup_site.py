@@ -1,33 +1,31 @@
+# accounts/management/commands/set_password.py
 from django.core.management.base import BaseCommand
-from django.contrib.sites.models import Site
-from django.conf import settings
-import os
+from django.contrib.auth.models import User
 
 
 class Command(BaseCommand):
-    help = 'Setup Django Site for production'
+    help = 'Set password for a user'
 
-    def handle(self, *args, **options):
-        # Get domain from environment
-        railway_domain = os.environ.get('RAILWAY_STATIC_URL', '').replace('https://', '').replace('http://', '')
+    def add_arguments(self, parser):
+        parser.add_argument('email', type=str, help='User email')
+        parser.add_argument('password', type=str, help='New password')
+
+    def handle(self, *args, **kwargs):
+        email = kwargs['email']
+        password = kwargs['password']
         
-        if not railway_domain:
-            railway_domain = 'dropvault-web-production.up.railway.app'
-        
-        site_id = getattr(settings, 'SITE_ID', 1)
-        
-        site, created = Site.objects.get_or_create(
-            pk=site_id,
-            defaults={
-                'domain': railway_domain,
-                'name': 'DropVault'
-            }
-        )
-        
-        if not created:
-            site.domain = railway_domain
-            site.name = 'DropVault'
-            site.save()
-            self.stdout.write(self.style.SUCCESS(f'✓ Updated site: {railway_domain}'))
-        else:
-            self.stdout.write(self.style.SUCCESS(f'✓ Created site: {railway_domain}'))
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(password)
+            user.save()
+            
+            self.stdout.write(
+                self.style.SUCCESS(f'✅ Password set for user: {user.email}')
+            )
+            self.stdout.write(f'   Username: {user.username}')
+            self.stdout.write(f'   Has usable password: {user.has_usable_password()}')
+            
+        except User.DoesNotExist:
+            self.stdout.write(
+                self.style.ERROR(f'❌ User not found: {email}')
+            )
