@@ -1098,3 +1098,61 @@ def api_debug_user(request):
             'success': False,
             'error': 'User not found'
         }, status=404)
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def api_fix_oauth_user(request):
+    """
+    Temporary endpoint to fix OAuth users without passwords.
+    Admin/debug use only.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
+    
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        
+        if not email:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email required'
+            }, status=400)
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'User not found'
+            }, status=404)
+        
+        # Check if user needs fixing
+        if user.has_usable_password():
+            return JsonResponse({
+                'success': True,
+                'message': 'User already has a password',
+                'fixed': False
+            })
+        
+        # Set random password
+        import secrets
+        random_password = secrets.token_urlsafe(16)
+        user.set_password(random_password)
+        user.save()
+        
+        logger.info(f"✅ Fixed OAuth user: {email}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Password set for {email}. User can now login with Google and set custom password.',
+            'fixed': True,
+            'has_password': user.has_usable_password()
+        })
+        
+    except Exception as e:
+        logger.error(f"Fix user error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
