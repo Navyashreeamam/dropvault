@@ -618,6 +618,7 @@ def api_check_auth(request):
         return JsonResponse({'authenticated': True, 'user': {'id': user.id, 'email': user.email}})
     return JsonResponse({'authenticated': False})
 
+
 @csrf_exempt
 def api_google_login(request):
     """Handle Google OAuth login"""
@@ -716,9 +717,19 @@ def api_google_login(request):
             return JsonResponse({'success': False, 'error': 'No email from Google'}, status=400)
         
         # Find or create user
+        user_created = False
         try:
             user = User.objects.get(email=email)
             logger.info(f"   Found existing user")
+            
+            # ✅ FIX EXISTING OAUTH USERS - If they don't have a password, set one
+            if not user.has_usable_password():
+                import secrets
+                random_password = secrets.token_urlsafe(16)
+                user.set_password(random_password)
+                user.save()
+                logger.info(f"   ✅ Set random password for existing OAuth user")
+                
         except User.DoesNotExist:
             username = email.split('@')[0]
             counter = 1
@@ -727,17 +738,23 @@ def api_google_login(request):
                 counter += 1
             
             name_parts = name.split() if name else [username]
-            user = User.objects.create(
+            
+            # ✅ FIX: Create user WITH a random password (not unusable)
+            import secrets
+            random_password = secrets.token_urlsafe(16)
+            
+            user = User.objects.create_user(
                 username=username,
                 email=email,
+                password=random_password,  # ✅ Random password instead of unusable
                 first_name=name_parts[0] if name_parts else '',
                 last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
                 is_active=True
             )
-            user.set_unusable_password()
-            user.save()
+            
             UserProfile.objects.get_or_create(user=user)
-            logger.info(f"   Created new user")
+            user_created = True
+            logger.info(f"   Created new user with random password")
         
         # Login user
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -746,7 +763,7 @@ def api_google_login(request):
         logger.info(f"✅ Google OAuth SUCCESS: {email}")
         logger.info("=" * 50)
         
-        return JsonResponse({
+        response_data = {
             'success': True,
             'token': token.key,
             'sessionid': request.session.session_key,
@@ -754,8 +771,16 @@ def api_google_login(request):
                 'id': user.id,
                 'email': user.email,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'has_password': user.has_usable_password(),
             }
-        })
+        }
+        
+        # ✅ If user was just created, prompt them to set their own password
+        if user_created:
+            response_data['first_time'] = True
+            response_data['message'] = 'Welcome! Please set a password in Settings to enable email login.'
+        
+        return JsonResponse(response_data)
         
     except requests.Timeout:
         logger.error("❌ Google OAuth timeout")
@@ -768,7 +793,6 @@ def api_google_login(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
-
 
 @csrf_exempt
 def api_verify_email(request):
