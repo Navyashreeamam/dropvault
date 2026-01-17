@@ -131,14 +131,19 @@ CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '').strip()
 CLOUDINARY_CONFIGURED = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
 
 if CLOUDINARY_CONFIGURED:
-    CLOUDINARY_STORAGE = {
-        'CLOUD_NAME': CLOUDINARY_CLOUD_NAME,
-        'API_KEY': CLOUDINARY_API_KEY,
-        'API_SECRET': CLOUDINARY_API_SECRET,
-    }
+    # Configure Cloudinary
+    import cloudinary
+    import cloudinary.uploader
+    import cloudinary.api
+    
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True
+    )
     print("✅ Cloudinary configured for file storage")
 else:
-    CLOUDINARY_STORAGE = {}
     print("⚠️ Cloudinary NOT configured - using local storage")
 
 # ============================================================================
@@ -182,34 +187,21 @@ if CLOUDINARY_CONFIGURED:
 # ============================================================================
 # STORAGE CONFIGURATION (Django 4.2+ way)
 # ============================================================================
-if CLOUDINARY_CONFIGURED:
-    # ✅ Cloudinary for media, WhiteNoise for static
-    STORAGES = {
-        "default": {
-            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
-        },
-        "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
-        },
-    }
-else:
-    # Local storage for both
-    STORAGES = {
-        "default": {
-            "BACKEND": "django.core.files.storage.FileSystemStorage",
-        },
-        "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
-        },
-    }
+STORAGES = {
+    "default": {
+        # Media files use default Django storage (we'll handle Cloudinary manually)
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        # Static files use WhiteNoise (simple, no compression issues)
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 
-# ✅ CRITICAL FIX: Backward compatibility for django-cloudinary-storage
-# The package still checks for deprecated STATICFILES_STORAGE setting
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
-
-# ✅ CRITICAL: Tell WhiteNoise to ignore missing files
+# ✅ WhiteNoise settings
 WHITENOISE_MANIFEST_STRICT = False
-WHITENOISE_ALLOW_ALL_ORIGINS = True
+WHITENOISE_AUTOREFRESH = True
+
 
 
 # ============================================================================

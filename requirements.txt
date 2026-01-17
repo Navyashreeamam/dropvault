@@ -19,7 +19,6 @@ dj-database-url==3.0.1
 Django==5.1.4
 django-allauth==65.13.1
 django-celery-beat==2.8.1
-django-cloudinary-storage==0.3.0
 django-cors-headers==4.9.0
 django-otp==1.6.3
 django-ratelimit==4.1.0
