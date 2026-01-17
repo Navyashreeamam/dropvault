@@ -194,45 +194,96 @@ def api_signup(request):
 
 @csrf_exempt
 def api_login(request):
+    """API endpoint for user login"""
     if request.method == "OPTIONS":
-        return JsonResponse({})
-    if request.method != "POST":
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
+        return JsonResponse({}, status=200)
     
     try:
         data = json.loads(request.body)
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
+        email_or_username = data.get('email') or data.get('username')
+        password = data.get('password')
         
-        logger.info(f"🔐 Login: {email}")
+        logger.info(f"🔐 Login: {email_or_username}")
         
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return JsonResponse({'success': False, 'error': 'Invalid credentials'}, status=401)
+        if not email_or_username or not password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email/username and password are required'
+            }, status=400)
         
-        auth_user = authenticate(request, username=user.username, password=password)
-        if not auth_user:
-            return JsonResponse({'success': False, 'error': 'Invalid credentials'}, status=401)
+        # Try to find user by email first, then username
+        user = None
+        if '@' in email_or_username:
+            # It's an email
+            try:
+                user = User.objects.get(email=email_or_username)
+            except User.DoesNotExist:
+                pass
         
-        login(request, auth_user)
-        token, _ = Token.objects.get_or_create(user=auth_user)
+        if not user:
+            # Try username
+            try:
+                user = User.objects.get(username=email_or_username)
+            except User.DoesNotExist:
+                pass
         
-        logger.info(f"✅ Login OK: {email}")
+        if not user:
+            logger.warning(f"❌ User not found: {email_or_username}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid credentials'
+            }, status=401)
+        
+        # Check password
+        if not user.check_password(password):
+            logger.warning(f"❌ Invalid password for: {email_or_username}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid credentials'
+            }, status=401)
+        
+        # Check if user is active
+        if not user.is_active:
+            return JsonResponse({
+                'success': False,
+                'error': 'Account is disabled'
+            }, status=403)
+        
+        # Login the user (create session)
+        login(request, user)
+        
+        # Create or get auth token
+        from rest_framework.authtoken.models import Token
+        token, created = Token.objects.get_or_create(user=user)
+        
+        logger.info(f"✅ Login successful: {user.email}")
         
         return JsonResponse({
             'success': True,
-            'token': token.key,
-            'sessionid': request.session.session_key,
+            'message': 'Login successful',
             'user': {
-                'id': auth_user.id,
-                'email': auth_user.email,
-                'name': f"{auth_user.first_name} {auth_user.last_name}".strip() or auth_user.username,
-            }
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+            },
+            'token': token.key,
         })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON'
+        }, status=400)
     except Exception as e:
-        logger.error(f"Login error: {e}")
-        return JsonResponse({'success': False, 'error': 'Login failed'}, status=500)
+        logger.error(f"Login error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'error': 'An error occurred during login'
+        }, status=500)
 
 @csrf_exempt
 def api_logout(request):

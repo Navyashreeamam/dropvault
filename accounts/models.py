@@ -107,12 +107,48 @@ class Notification(models.Model):
         
         return False
     
+    # ✅ ADD THIS METHOD (it was missing!)
+    @classmethod
+    def get_visible_notifications(cls, user):
+        """Get all visible notifications for a user"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Get unread notifications
+        unread = cls.objects.filter(user=user, is_read=False)
+        
+        # Get read notifications from last 24 hours
+        cutoff_time = timezone.now() - timedelta(hours=24)
+        recent_read = cls.objects.filter(
+            user=user,
+            is_read=True,
+            read_at__gte=cutoff_time
+        )
+        
+        # Combine and return as list
+        return list(unread) + list(recent_read)
+    
     @classmethod
     def cleanup_old_notifications(cls, user):
         """Delete old read notifications"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
         cutoff_time = timezone.now() - timedelta(hours=24)
         cls.objects.filter(
             user=user,
             is_read=True,
             read_at__lt=cutoff_time
         ).delete()
+    
+    @classmethod
+    def create_notification(cls, user, notification_type, title, message, file_name=None, file_id=None):
+        """Helper to create a notification"""
+        return cls.objects.create(
+            user=user,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            file_name=file_name,
+            file_id=file_id
+        )
