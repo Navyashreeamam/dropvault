@@ -191,6 +191,7 @@ else:
     print("⚠️ Cloudinary NOT configured - using local storage")
     print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
 
+
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 ACCOUNT_LOGOUT_ON_GET = False
@@ -233,6 +234,7 @@ MIDDLEWARE = [
     #'accounts.middleware.EmailVerificationMiddleware',
 ]
 
+ROOT_URLCONF = 'dropvault.urls'
 
 # SESSION & COOKIE CONFIGURATION - FIXED!
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
