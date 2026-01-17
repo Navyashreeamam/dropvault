@@ -1,170 +1,231 @@
 # files/models.py
-import os
-import uuid
 from django.db import models
-from django.contrib.auth.models import User
+from django.conf import settings
 from django.utils import timezone
-from datetime import timedelta
-from django.contrib.auth import get_user_model
+from django.utils.crypto import get_random_string
+import os
 
-User = get_user_model()
-
-
-def user_upload_path(instance, filename):
-    """Generate unique file path for each user"""
-    ext = filename.split('.')[-1].lower()
-    safe_name = f"{uuid.uuid4().hex}.{ext}"
-    return os.path.join(f"user_{instance.user.id}", safe_name)
+# ✅ FIXED: Use settings.AUTH_USER_MODEL instead of get_user_model()
+# This allows string reference instead of importing the actual model
 
 
-class ActiveFileManager(models.Manager):
-    """Manager to get only active (non-deleted) files"""
-    def get_queryset(self):
-        return super().get_queryset().filter(deleted_at__isnull=True)
-
-
-class TrashFileManager(models.Manager):
-    """Manager to get only trashed files"""
-    def get_queryset(self):
-        return super().get_queryset().filter(deleted_at__isnull=False)
+def upload_to_path(instance, filename):
+    """Generate upload path for files"""
+    # Get file extension
+    ext = filename.split('.')[-1] if '.' in filename else ''
+    
+    # Generate random filename
+    random_name = get_random_string(32)
+    new_filename = f"{random_name}.{ext}" if ext else random_name
+    
+    # Return path: uploads/user_<id>/filename
+    return os.path.join('uploads', f'user_{instance.owner.id}', new_filename)
 
 
 class File(models.Model):
-    """File model with soft delete functionality"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='files')
-    file = models.FileField(upload_to=user_upload_path, blank=True, null=True)
-    original_name = models.CharField(max_length=255)
-    size = models.PositiveBigIntegerField()
-    sha256 = models.CharField(max_length=64, db_index=True)
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-    deleted = models.BooleanField(default=False, db_index=True)
-    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    encryption_meta = models.TextField(default='[]', blank=True)
+    """File model for storing uploaded files"""
     
-    cloudinary_url = models.URLField(max_length=500, blank=True, null=True)
-    cloudinary_public_id = models.CharField(max_length=255, blank=True, null=True)
-    cloudinary_resource_type = models.CharField(max_length=20, blank=True, null=True)
-
-    objects = models.Manager()
+    # ✅ FIXED: Use settings.AUTH_USER_MODEL string reference
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='files'
+    )
+    
+    # File fields
+    file = models.FileField(upload_to=upload_to_path)
+    original_filename = models.CharField(max_length=255)
+    file_size = models.BigIntegerField(help_text="File size in bytes")
+    content_type = models.CharField(max_length=100, blank=True)
+    
+    # Metadata
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Soft delete
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    
+    # File organization
+    folder = models.CharField(max_length=255, blank=True, default='')
+    tags = models.CharField(max_length=500, blank=True, help_text="Comma-separated tags")
     
     class Meta:
         ordering = ['-uploaded_at']
         indexes = [
-            models.Index(fields=['user', 'deleted']),
-            models.Index(fields=['user', 'deleted_at']),
-            models.Index(fields=['sha256']),
+            models.Index(fields=['owner', 'is_deleted']),
+            models.Index(fields=['uploaded_at']),
         ]
-
-    def get_download_url(self):
-        """Get the correct download URL"""
-        # Prefer Cloudinary URL if available
-        if self.cloudinary_url:
-            return self.cloudinary_url
-        # Fallback to file field URL
-        if self.file:
-            try:
-                return self.file.url
-            except:
-                pass
-        return None
-
+    
+    def __str__(self):
+        return f"{self.original_filename} - {self.owner.username}"
+    
     def soft_delete(self):
-        self.deleted = True
+        """Soft delete the file"""
+        self.is_deleted = True
         self.deleted_at = timezone.now()
-        self.save(update_fields=['deleted', 'deleted_at'])
-
+        self.save()
+    
     def restore(self):
-        self.deleted = False
+        """Restore a soft-deleted file"""
+        self.is_deleted = False
         self.deleted_at = None
-        self.save(update_fields=['deleted', 'deleted_at'])
-
-    def is_in_trash(self):
-        return self.deleted or self.deleted_at is not None
-
-    def __str__(self):
-        status = '🗑️' if self.is_in_trash() else '✅'
-        return f"{self.original_name} ({status})"
+        self.save()
     
-
-class Trash(models.Model):
-    """Legacy trash model - kept for backward compatibility"""
-    file = models.OneToOneField(File, on_delete=models.CASCADE)
-    deleted_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Trash: {self.file.original_name}"
-
-
-class FileLog(models.Model):
-    """Log file actions for audit trail"""
-    ACTIONS = [
-        ('UPLOAD', 'Upload'),
-        ('DELETE', 'Delete'),
-        ('RESTORE', 'Restore'),
-        ('DOWNLOAD', 'Download'),
-        ('SHARE', 'Share'),
-    ]
+    def get_file_extension(self):
+        """Get file extension"""
+        return self.original_filename.split('.')[-1].lower() if '.' in self.original_filename else ''
     
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    file = models.ForeignKey(File, on_delete=models.CASCADE, related_name='logs')
-    action = models.CharField(max_length=10, choices=ACTIONS)
-    timestamp = models.DateTimeField(auto_now_add=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-
-    def __str__(self):
-        return f"{self.user.email} - {self.action} - {self.file.original_name}"
+    def get_readable_size(self):
+        """Return human-readable file size"""
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} PB"
 
 
 class SharedLink(models.Model):
-    """Shareable links for files"""
-    file = models.ForeignKey(File, on_delete=models.CASCADE, related_name='shared_links')
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='shared_links')
-    slug = models.CharField(max_length=12, unique=True, db_index=True)
-    token = models.CharField(max_length=64, unique=True, null=True, blank=True)
-    max_downloads = models.PositiveIntegerField(default=5)
-    view_count = models.PositiveIntegerField(default=0)
-    download_count = models.PositiveIntegerField(default=0)
-    first_accessed_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
+    """Model for sharing files via links"""
+    
+    file = models.ForeignKey(
+        File,
+        on_delete=models.CASCADE,
+        related_name='shared_links'
+    )
+    
+    # ✅ FIXED: Use settings.AUTH_USER_MODEL string reference
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='created_shares'
+    )
+    
+    # Share link details
+    slug = models.SlugField(max_length=50, unique=True, db_index=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Expiration
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    
+    # Access control
     is_active = models.BooleanField(default=True)
-    is_email_only = models.BooleanField(default=False)
-
+    max_downloads = models.IntegerField(null=True, blank=True, help_text="Max number of downloads allowed")
+    download_count = models.IntegerField(default=0)
+    
+    # Tracking
+    last_accessed = models.DateTimeField(null=True, blank=True)
+    
     class Meta:
         ordering = ['-created_at']
-
-    def save(self, *args, **kwargs):
-        """Auto-generate slug and token if not set"""
-        if not self.slug:
-            import secrets
-            self.slug = secrets.token_urlsafe(8)[:12]
-        if not self.token:
-            import secrets
-            self.token = secrets.token_urlsafe(48)
-        super().save(*args, **kwargs)
-
+        indexes = [
+            models.Index(fields=['slug']),
+            models.Index(fields=['file', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"Share: {self.file.original_filename} - {self.slug}"
+    
     def is_expired(self):
-        """Check if link has expired"""
-        if not self.is_active:
-            return True
+        """Check if link is expired"""
         if self.expires_at and timezone.now() > self.expires_at:
             return True
-        if self.download_count >= self.max_downloads:
+        if self.max_downloads and self.download_count >= self.max_downloads:
             return True
         return False
+    
+    def increment_download(self):
+        """Increment download count"""
+        self.download_count += 1
+        self.last_accessed = timezone.now()
+        self.save()
+    
+    def get_share_url(self):
+        """Get the full share URL"""
+        from django.conf import settings
+        return f"{settings.SITE_URL}/s/{self.slug}/"
 
-    def activate_expiry(self):
-        """Activate 24-hour expiry on first access"""
-        if self.first_accessed_at is None:
-            now = timezone.now()
-            SharedLink.objects.filter(id=self.id).update(
-                first_accessed_at=now,
-                expires_at=now + timedelta(hours=24)
-            )
 
+class FileVersion(models.Model):
+    """Model for storing file versions"""
+    
+    file = models.ForeignKey(
+        File,
+        on_delete=models.CASCADE,
+        related_name='versions'
+    )
+    
+    # Version details
+    version_number = models.IntegerField()
+    file_data = models.FileField(upload_to='versions/')
+    file_size = models.BigIntegerField()
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='file_versions'
+    )
+    
+    change_description = models.TextField(blank=True)
+    
+    class Meta:
+        ordering = ['-version_number']
+        unique_together = ['file', 'version_number']
+        indexes = [
+            models.Index(fields=['file', 'version_number']),
+        ]
+    
     def __str__(self):
-        status = "Expired" if self.is_expired() else "🟢 Active"
-        return f"{self.file.original_name} - {self.slug} ({status})"
+        return f"{self.file.original_filename} - v{self.version_number}"
+
+
+class FileAccessLog(models.Model):
+    """Log file access for security/auditing"""
+    
+    file = models.ForeignKey(
+        File,
+        on_delete=models.CASCADE,
+        related_name='access_logs'
+    )
+    
+    # ✅ FIXED: Use settings.AUTH_USER_MODEL string reference
+    accessed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='file_accesses'
+    )
+    
+    # Access details
+    action = models.CharField(
+        max_length=50,
+        choices=[
+            ('view', 'Viewed'),
+            ('download', 'Downloaded'),
+            ('share', 'Shared'),
+            ('delete', 'Deleted'),
+            ('restore', 'Restored'),
+        ]
+    )
+    
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=500, blank=True)
+    
+    accessed_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-accessed_at']
+        indexes = [
+            models.Index(fields=['file', 'accessed_at']),
+            models.Index(fields=['accessed_by', 'accessed_at']),
+        ]
+    
+    def __str__(self):
+        user = self.accessed_by.username if self.accessed_by else 'Anonymous'
+        return f"{user} - {self.action} - {self.file.original_filename}"
