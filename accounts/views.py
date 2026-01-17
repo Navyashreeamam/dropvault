@@ -246,51 +246,123 @@ def api_check_user_password_status(request):
         }
     })
 
+
+
 @csrf_exempt
 def api_signup(request):
+    """API endpoint for user signup"""
     if request.method == "OPTIONS":
         return JsonResponse({})
+    
     if request.method != "POST":
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
+        password = data.get('password', '').strip()
         name = data.get('name', '').strip()
         
+        logger.info(f"📝 Signup attempt: {email}")
+        
+        # Validate input
         if not email or not password:
-            return JsonResponse({'success': False, 'error': 'Email and password required'}, status=400)
+            return JsonResponse({
+                'success': False,
+                'error': 'Email and password are required'
+            }, status=400)
         
+        if len(password) < 8:
+            return JsonResponse({
+                'success': False,
+                'error': 'Password must be at least 8 characters long'
+            }, status=400)
+        
+        # Check if user already exists
         if User.objects.filter(email=email).exists():
-            return JsonResponse({'success': False, 'error': 'Email exists'}, status=400)
+            existing_user = User.objects.get(email=email)
+            
+            # Check if it's an OAuth user without password
+            if not existing_user.has_usable_password():
+                logger.warning(f"   ⚠️  Email exists as OAuth account: {email}")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'This email is already registered with Google Sign-In.',
+                    'suggestion': 'Please login with Google, then you can set a password in Settings.',
+                    'oauth_account': True
+                }, status=400)
+            else:
+                logger.warning(f"   ❌ Email already exists: {email}")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'An account with this email already exists. Please login instead.'
+                }, status=400)
         
+        # Create username from email
         username = email.split('@')[0]
         counter = 1
         while User.objects.filter(username=username).exists():
             username = f"{email.split('@')[0]}{counter}"
             counter += 1
         
-        user = User.objects.create(
-            username=username, email=email,
-            first_name=name.split()[0] if name else '',
-            password=make_password(password)
+        # Parse name
+        name_parts = name.split() if name else [username]
+        first_name = name_parts[0] if name_parts else ''
+        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+        
+        # Create user
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,  # ✅ This properly hashes the password
+            first_name=first_name,
+            last_name=last_name
         )
+        
+        # Create profile
         UserProfile.objects.get_or_create(user=user)
+        
+        # Login user
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        
+        # Create token
         token, _ = Token.objects.get_or_create(user=user)
         
+        logger.info(f"✅ Signup successful: {email} (username: {username})")
+        
         return JsonResponse({
-            'success': True, 'token': token.key,
-            'user': {'id': user.id, 'email': user.email, 'name': user.first_name}
+            'success': True,
+            'message': 'Account created successfully',
+            'token': token.key,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'has_password': True,
+            }
         })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON'
+        }, status=400)
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        logger.error(f"❌ Signup error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'error': f'Signup failed: {str(e)}'
+        }, status=500)
+
+
 
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def api_login(request):
-    """API endpoint for user login with detailed debugging"""
+    """API endpoint for user login - supports both password and OAuth users"""
     if request.method == "OPTIONS":
         return JsonResponse({}, status=200)
     
@@ -311,31 +383,29 @@ def api_login(request):
         
         # Try to find user
         user = None
-        lookup_method = None
         
         if '@' in email_or_username:
             # Email lookup
             try:
-                user = User.objects.get(email=email_or_username)
-                lookup_method = 'email'
+                user = User.objects.get(email=email_or_username.lower().strip())
                 logger.info(f"   ✅ Found user by email: {user.username}")
             except User.DoesNotExist:
                 logger.warning(f"   ❌ No user found with email: {email_or_username}")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Invalid email or password'
+                }, status=401)
         else:
             # Username lookup
             try:
                 user = User.objects.get(username=email_or_username)
-                lookup_method = 'username'
                 logger.info(f"   ✅ Found user by username: {user.username}")
             except User.DoesNotExist:
                 logger.warning(f"   ❌ No user found with username: {email_or_username}")
-        
-        # User not found
-        if not user:
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid credentials - User not found'
-            }, status=401)
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Invalid username or password'
+                }, status=401)
         
         # Check if user is active
         if not user.is_active:
@@ -345,48 +415,37 @@ def api_login(request):
                 'error': 'Account is disabled'
             }, status=403)
         
-        # ⚠️ CRITICAL CHECK: Does user have a usable password?
+        # ✅ NEW: Check if user has a password set
         if not user.has_usable_password():
-            logger.warning(f"   ❌ User has no password (OAuth account): {user.username}")
+            logger.warning(f"   ⚠️  User has no password (OAuth account): {user.username}")
             return JsonResponse({
                 'success': False,
-                'error': 'This account was created with Google Sign-In. Please use Google to login.',
-                'oauth_account': True
+                'error': 'This account was created with Google Sign-In. Please login with Google or set a password first.',
+                'oauth_account': True,
+                'suggestion': 'Login with Google, then set a password in Settings to enable email/password login.'
             }, status=401)
         
-        # Check password
-        logger.info(f"   🔑 Checking password for user: {user.username}")
-        logger.info(f"   Password field starts with: {user.password[:20]}...")
+        # Check password using Django's authenticate
+        authenticated_user = authenticate(request, username=user.username, password=password)
         
-        if not user.check_password(password):
+        if not authenticated_user:
             logger.warning(f"   ❌ Invalid password for user: {user.username}")
             return JsonResponse({
                 'success': False,
-                'error': 'Invalid credentials - Incorrect password'
+                'error': 'Invalid email or password'
             }, status=401)
         
         # ✅ All checks passed - login user
         logger.info(f"   ✅ Password correct, logging in user: {user.username}")
-        
-        # Django's authenticate() for extra security checks
-        authenticated_user = authenticate(request, username=user.username, password=password)
-        
-        if not authenticated_user:
-            logger.error(f"   ❌ authenticate() failed for user: {user.username}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Authentication failed'
-            }, status=401)
         
         # Create session
         login(request, authenticated_user)
         logger.info(f"   ✅ Session created for user: {user.username}")
         
         # Create or get auth token
-        from rest_framework.authtoken.models import Token
         token, created = Token.objects.get_or_create(user=authenticated_user)
         
-        logger.info(f"✅ LOGIN SUCCESS: {user.email} (token: {token.key[:10]}...)")
+        logger.info(f"✅ LOGIN SUCCESS: {user.email} (via password)")
         
         return JsonResponse({
             'success': True,
@@ -397,6 +456,7 @@ def api_login(request):
                 'email': user.email,
                 'first_name': user.first_name,
                 'last_name': user.last_name,
+                'has_password': True,
             },
             'token': token.key,
         })
@@ -413,7 +473,7 @@ def api_login(request):
         logger.error(traceback.format_exc())
         return JsonResponse({
             'success': False,
-            'error': f'An error occurred during login: {str(e)}'
+            'error': 'An error occurred during login'
         }, status=500)
 
 
