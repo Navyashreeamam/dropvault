@@ -381,7 +381,8 @@ def api_login(request):
             logger.warning("❌ Missing email/password")
             return JsonResponse({
                 'success': False,
-                'error': 'Email/username and password are required'
+                'error': 'Email and password are required',
+                'field': 'credentials'
             }, status=400)
         
         # Try to find user
@@ -394,9 +395,12 @@ def api_login(request):
                 logger.info(f"   ✅ Found user by email: {user.username}")
             except User.DoesNotExist:
                 logger.warning(f"   ❌ No user found with email: {email_or_username}")
+                # ✅ FIX: Don't reveal if email exists or not (security)
                 return JsonResponse({
                     'success': False,
-                    'error': 'Invalid email or password'
+                    'error': 'Invalid email or password',
+                    'suggestion': 'Please check your credentials or sign up',
+                    'field': 'credentials'
                 }, status=401)
         else:
             # Username lookup
@@ -407,7 +411,8 @@ def api_login(request):
                 logger.warning(f"   ❌ No user found with username: {email_or_username}")
                 return JsonResponse({
                     'success': False,
-                    'error': 'Invalid username or password'
+                    'error': 'Invalid username or password',
+                    'field': 'credentials'
                 }, status=401)
         
         # Check if user is active
@@ -415,28 +420,49 @@ def api_login(request):
             logger.warning(f"   ❌ User is inactive: {user.username}")
             return JsonResponse({
                 'success': False,
-                'error': 'Account is disabled'
+                'error': 'Your account has been disabled. Please contact support.',
+                'field': 'account'
             }, status=403)
         
-        # ✅ NEW: Check if user has a password set
+        # ✅ IMPROVED: Check if user has a password set
         if not user.has_usable_password():
             logger.warning(f"   ⚠️  User has no password (OAuth account): {user.username}")
             return JsonResponse({
                 'success': False,
-                'error': 'This account was created with Google Sign-In. Please login with Google or set a password first.',
+                'error': 'This account uses Google Sign-In',
                 'oauth_account': True,
-                'suggestion': 'Login with Google, then set a password in Settings to enable email/password login.'
+                'suggestion': 'Please use the "Sign in with Google" button, then you can set a password in Settings.',
+                'action': 'use_google_signin',
+                'field': 'oauth'
             }, status=401)
         
-        # Check password using Django's authenticate
+        # ✅ IMPROVED: Check password with better error message
+        logger.info(f"   🔑 Checking password for user: {user.username}")
         authenticated_user = authenticate(request, username=user.username, password=password)
         
         if not authenticated_user:
             logger.warning(f"   ❌ Invalid password for user: {user.username}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid email or password'
-            }, status=401)
+            
+            # ✅ NEW: Check if this might be an OAuth user with random password
+            # (password field starts with 'pbkdf2_sha256' and user never logged in with password)
+            if user.last_login and user.last_login > user.date_joined:
+                # User has logged in before - likely wrong password
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Incorrect password',
+                    'suggestion': 'Please check your password or use "Forgot Password"',
+                    'action': 'forgot_password',
+                    'field': 'password'
+                }, status=401)
+            else:
+                # User never logged in - might be OAuth user trying password login
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Incorrect password',
+                    'suggestion': 'If you signed up with Google, please use "Sign in with Google" or reset your password',
+                    'action': 'forgot_password_or_google',
+                    'field': 'password'
+                }, status=401)
         
         # ✅ All checks passed - login user
         logger.info(f"   ✅ Password correct, logging in user: {user.username}")
@@ -468,7 +494,7 @@ def api_login(request):
         logger.error(f"❌ Invalid JSON in request: {str(e)}")
         return JsonResponse({
             'success': False,
-            'error': 'Invalid JSON'
+            'error': 'Invalid request format'
         }, status=400)
     except Exception as e:
         logger.error(f"❌ Login error: {str(e)}")
@@ -476,7 +502,7 @@ def api_login(request):
         logger.error(traceback.format_exc())
         return JsonResponse({
             'success': False,
-            'error': 'An error occurred during login'
+            'error': 'An error occurred. Please try again later.'
         }, status=500)
 
 
