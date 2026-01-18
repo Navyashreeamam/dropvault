@@ -75,41 +75,28 @@ def authenticate_request(request):
     return None
 
 ALLOWED_EXTENSIONS = {
-    # Images (raster)
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico',
-    # Images (vector)
-    '.svg', '.eps', '.ai',  # ✅ SVG added!
-    # Documents
-    '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
-    # Spreadsheets
+    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+    '.doc', '.docx', '.txt', '.rtf', '.odt',
     '.xls', '.xlsx', '.csv',
-    # Presentations
+    '.svg', '.eps', '.ai', 
     '.ppt', '.pptx',
-    # Videos
-    '.mp4', '.mov', '.avi', '.webm', '.mkv', '.flv', '.wmv',
-    # Audio
-    '.mp3', '.wav', '.flac', '.aac', '.ogg',
-    # Archives
-    '.zip', '.rar', '.7z', '.tar', '.gz',
+    '.mp4', '.mp3', '.wav', '.avi', '.mov',
+    '.zip', '.rar', '.7z', '.tar', '.gz'
 }
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
-
 def validate_file(file):
-    """Validate file type and size"""
     if not file:
         return False, "No file provided"
-    
     ext = os.path.splitext(file.name)[1].lower()
-    
     if ext and ext not in ALLOWED_EXTENSIONS:
-        return False, f"File type '{ext}' not allowed. Allowed types: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
-    
+        return False, f"File type '{ext}' not allowed"
     if file.size > MAX_FILE_SIZE:
-        return False, f"File too large (max {MAX_FILE_SIZE / (1024*1024):.0f}MB)"
-    
+        return False, "File too large (max 50MB)"
     return True, ""
+
+
 
 def get_file_hash(file):
     hasher = hashlib.sha256()
