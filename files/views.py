@@ -121,6 +121,8 @@ def auth_error_response():
     }, status=401)
 
 
+
+
 @csrf_exempt
 def upload_file(request):
     """Upload a file to Cloudinary"""
@@ -142,29 +144,40 @@ def upload_file(request):
     try:
         user = authenticate_request(request)
         if not user:
+            log_error("📤 Authentication failed")
             return auth_error_response()
         
-        log_info(f"📤 User: {user.email}")
+        log_info(f"📤 User: {user.email} (ID: {user.id})")
         
         if 'file' not in request.FILES:
+            log_error("📤 No file in request.FILES")
             return json_response({'error': 'No file provided'}, status=400)
         
         file = request.FILES['file']
-        log_info(f"📤 File: {file.name} ({file.size} bytes)")
+        log_info(f"📤 File: {file.name} ({file.size} bytes, {file.content_type})")
         
         # Validate
         valid, error_msg = validate_file(file)
         if not valid:
+            log_error(f"📤 Validation failed: {error_msg}")
             return json_response({'error': error_msg}, status=400)
         
         # Get hash
-        file_hash = get_file_hash(file)
+        try:
+            file_hash = get_file_hash(file)
+            log_info(f"📤 File hash: {file_hash[:16]}...")
+        except Exception as hash_error:
+            log_error(f"📤 Hash error: {hash_error}")
+            return json_response({'error': 'Failed to process file'}, status=500)
         
         # Check duplicate
-        if File.objects.filter(user=user, sha256=file_hash, deleted=False).exists():
+        duplicate = File.objects.filter(user=user, sha256=file_hash, deleted=False).first()
+        if duplicate:
+            log_info(f"📤 Duplicate file detected: {duplicate.id}")
             return json_response({
                 'error': 'Duplicate file',
-                'message': 'You already uploaded this file'
+                'message': 'You already uploaded this file',
+                'existing_file_id': duplicate.id
             }, status=409)
         
         # Get Cloudinary config
@@ -172,9 +185,13 @@ def upload_file(request):
         api_key = os.environ.get('CLOUDINARY_API_KEY')
         api_secret = os.environ.get('CLOUDINARY_API_SECRET')
         
-        if not (cloud_name and api_key and api_secret):
-            return json_response({'error': 'Storage not configured'}, status=500)
+        log_info(f"📤 Cloudinary config: cloud_name={'SET' if cloud_name else 'MISSING'}, api_key={'SET' if api_key else 'MISSING'}, api_secret={'SET' if api_secret else 'MISSING'}")
         
+        if not (cloud_name and api_key and api_secret):
+            log_error("📤 Cloudinary not configured")
+            return json_response({'error': 'Storage not configured. Please contact admin.'}, status=500)
+        
+        # Upload to Cloudinary
         try:
             import cloudinary
             import cloudinary.uploader
@@ -186,43 +203,35 @@ def upload_file(request):
                 secure=True
             )
             
-            # Generate unique filename WITHOUT extension
+            # Generate unique filename
             unique_name = f"{uuid.uuid4().hex}"
-            
-            # Get file extension
             ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
-            
-            # Determine resource type
             content_type = file.content_type or ''
             
+            # Determine resource type
             if content_type.startswith('image/') or ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']:
                 resource_type = 'image'
             elif content_type.startswith('video/') or ext in ['mp4', 'mov', 'avi', 'webm']:
                 resource_type = 'video'
             else:
-                # ✅ KEY FIX: Use 'auto' for PDFs and other files
                 resource_type = 'auto'
             
-            log_info(f"📤 Extension: {ext}, Content-Type: {content_type}")
-            log_info(f"📤 Resource Type: {resource_type}")
+            log_info(f"📤 Extension: {ext}, Content-Type: {content_type}, Resource Type: {resource_type}")
             
-            # Upload to Cloudinary
-            file.seek(0)
-            
-            # ✅ KEY FIX: Include format for proper file handling
+            # Upload options
             upload_options = {
                 'folder': f"user_{user.id}",
                 'public_id': unique_name,
                 'resource_type': resource_type,
                 'type': 'upload',
-                'access_mode': 'public',  # ✅ Make publicly accessible
+                'access_mode': 'public',
             }
             
-            # Add format for non-image files
             if ext and resource_type != 'image':
                 upload_options['format'] = ext
             
-            log_info(f"📤 Upload options: {upload_options}")
+            log_info(f"📤 Uploading to Cloudinary...")
+            file.seek(0)
             
             upload_result = cloudinary.uploader.upload(file, **upload_options)
             
@@ -230,34 +239,63 @@ def upload_file(request):
             cloudinary_url = upload_result.get('secure_url')
             actual_resource_type = upload_result.get('resource_type', resource_type)
             
-            log_info(f"📤 ✅ Public ID: {cloudinary_public_id}")
-            log_info(f"📤 ✅ URL: {cloudinary_url}")
-            log_info(f"📤 ✅ Actual Resource Type: {actual_resource_type}")
+            log_info(f"📤 ✅ Cloudinary upload successful")
+            log_info(f"📤    Public ID: {cloudinary_public_id}")
+            log_info(f"📤    URL: {cloudinary_url}")
+            log_info(f"📤    Resource Type: {actual_resource_type}")
             
-        except Exception as e:
-            log_error(f"📤 ❌ Cloudinary error: {e}")
+        except Exception as cloudinary_error:
+            log_error(f"📤 ❌ Cloudinary upload failed: {cloudinary_error}")
             log_error(traceback.format_exc())
             return json_response({
-                'error': 'Upload failed',
-                'message': str(e)
+                'error': 'Upload to cloud storage failed',
+                'message': str(cloudinary_error),
+                'details': 'Please try again or contact support'
             }, status=500)
         
         # Save to database
-        file_obj = File.objects.create(
-            user=user,
-            original_name=file.name,
-            size=file.size,
-            sha256=file_hash,
-            deleted=False,
-            cloudinary_url=cloudinary_url,
-            cloudinary_public_id=cloudinary_public_id
-        )
+        try:
+            log_info(f"📤 Saving to database...")
+            
+            file_obj = File.objects.create(
+                user=user,
+                original_name=file.name,
+                size=file.size,
+                sha256=file_hash,
+                deleted=False,
+                cloudinary_url=cloudinary_url,
+                cloudinary_public_id=cloudinary_public_id,
+                cloudinary_resource_type=actual_resource_type  # ✅ FIX: Include this field
+            )
+            
+            log_info(f"📤 ✅ Database save successful! File ID: {file_obj.id}")
+            
+        except Exception as db_error:
+            log_error(f"📤 ❌ Database save failed: {db_error}")
+            log_error(f"📤    Error type: {type(db_error).__name__}")
+            log_error(traceback.format_exc())
+            
+            # Try to delete from Cloudinary since DB save failed
+            try:
+                cloudinary.uploader.destroy(cloudinary_public_id, resource_type=actual_resource_type)
+                log_info(f"📤 Cleaned up Cloudinary file after DB error")
+            except:
+                pass
+            
+            return json_response({
+                'error': 'Failed to save file record',
+                'message': str(db_error),
+                'type': type(db_error).__name__
+            }, status=500)
         
-        log_info(f"📤 ✅ Saved! File ID: {file_obj.id}")
-        
-        # Log & Notify
+        # Create log & notification
         try:
             FileLog.objects.create(user=user, file=file_obj, action='UPLOAD')
+            log_info(f"📤 File log created")
+        except Exception as log_error:
+            log_error(f"📤 Failed to create file log: {log_error}")
+        
+        try:
             create_user_notification(
                 user=user,
                 notification_type='FILE_UPLOAD',
@@ -266,8 +304,12 @@ def upload_file(request):
                 file_name=file_obj.original_name,
                 file_id=file_obj.id
             )
-        except:
-            pass
+            log_info(f"📤 Notification created")
+        except Exception as notif_error:
+            log_error(f"📤 Failed to create notification: {notif_error}")
+        
+        log_info(f"📤 ✅ UPLOAD COMPLETE - File ID: {file_obj.id}")
+        log_info("=" * 60)
         
         return json_response({
             'status': 'success',
@@ -278,14 +320,21 @@ def upload_file(request):
                 'size': file_obj.size,
                 'uploaded_at': file_obj.uploaded_at.isoformat(),
                 'cloudinary_url': cloudinary_url,
+                'cloudinary_public_id': cloudinary_public_id,
+                'resource_type': actual_resource_type,
                 'storage': 'cloudinary'
             }
         }, status=201)
         
     except Exception as e:
-        log_error(f"📤 ❌ Error: {e}")
+        log_error(f"📤 ❌ UPLOAD ERROR: {e}")
+        log_error(f"📤    Error type: {type(e).__name__}")
         log_error(traceback.format_exc())
-        return json_response({'error': str(e)}, status=500)
+        return json_response({
+            'error': 'Upload failed',
+            'message': str(e),
+            'type': type(e).__name__
+        }, status=500)
     
 
 def format_file_size(size_bytes):
