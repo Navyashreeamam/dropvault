@@ -2,6 +2,7 @@
 import logging
 import sys
 import os
+import re
 import hashlib
 import secrets
 import json
@@ -74,28 +75,54 @@ def authenticate_request(request):
     
     return None
 
+
 ALLOWED_EXTENSIONS = {
-    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
-    '.doc', '.docx', '.txt', '.rtf', '.odt',
+    # Images
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico',
+    '.svg', '.eps', '.ai',
+    # Documents
+    '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
+    # Spreadsheets
     '.xls', '.xlsx', '.csv',
-    '.svg', '.eps', '.ai', 
+    # Presentations
     '.ppt', '.pptx',
-    '.mp4', '.mp3', '.wav', '.avi', '.mov',
-    '.zip', '.rar', '.7z', '.tar', '.gz'
+    # Videos
+    '.mp4', '.mov', '.avi', '.webm', '.mkv', '.flv', '.wmv',
+    # Audio
+    '.mp3', '.wav', '.flac', '.aac', '.ogg',
+    # Archives
+    '.zip', '.rar', '.7z', '.tar', '.gz',
 }
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
+
+def sanitize_filename(filename):
+    """Remove special characters and spaces from filename"""
+    name, ext = os.path.splitext(filename)
+    # Replace spaces and special chars
+    name = re.sub(r'[^\w\-]', '_', name)
+    # Remove consecutive underscores
+    name = re.sub(r'_+', '_', name)
+    # Limit length
+    name = name[:100]
+    return f"{name}{ext}"
+
+
 def validate_file(file):
+    """Validate file type and size"""
     if not file:
         return False, "No file provided"
+    
     ext = os.path.splitext(file.name)[1].lower()
+    
     if ext and ext not in ALLOWED_EXTENSIONS:
         return False, f"File type '{ext}' not allowed"
+    
     if file.size > MAX_FILE_SIZE:
-        return False, "File too large (max 50MB)"
+        return False, f"File too large (max 100MB)"
+    
     return True, ""
-
 
 
 def get_file_hash(file):
