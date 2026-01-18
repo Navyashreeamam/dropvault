@@ -251,7 +251,7 @@ def upload_file(request):
                 'resource_type': resource_type,
                 'type': 'upload',
                 'access_mode': 'public',
-                'timeout': 120  # 2 minute timeout
+                'timeout': 300
             }
             
             # Add format for raw files

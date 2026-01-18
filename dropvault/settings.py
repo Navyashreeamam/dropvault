@@ -349,9 +349,17 @@ if not CLOUDINARY_CONFIGURED:
 # ============================================================================
 # UPLOAD LIMITS
 # ============================================================================
-DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800   # 50MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800   # 50MB
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
+# ✅ ADD: Request timeout settings
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# ✅ ADD: Keep connections alive
+CONN_MAX_AGE = 600  # 10 minutes
 
 # ============================================================================
 # SECURITY SETTINGS
