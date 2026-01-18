@@ -211,11 +211,19 @@ def upload_file(request):
             content_type = file.content_type or ''
             
             # Determine resource type
-            if content_type.startswith('image/') or ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']:
+            ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
+            content_type = file.content_type or ''
+
+            raster_image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico']
+            vector_image_exts = ['svg', 'eps', 'ai']
+            video_exts = ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv', 'wmv']
+
+            if ext in raster_image_exts:
                 resource_type = 'image'
-            elif content_type.startswith('video/') or ext in ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv']:
+            elif ext in video_exts:
                 resource_type = 'video'
             else:
+                # SVG, PDF, docs, and all other files
                 resource_type = 'raw'
             
             log_info(f"📤 Extension: {ext}, Content-Type: {content_type}, Resource Type: {resource_type}")
