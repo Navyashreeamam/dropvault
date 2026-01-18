@@ -26,14 +26,14 @@ import requests
 from django.http import HttpResponse
 import uuid
 
-
-
 # At the top of files/views.py, add:
 from rest_framework.authtoken.models import Token
 from django.contrib.sessions.models import Session
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
 
 def authenticate_request(request):
     """Authenticate request using token or session"""
@@ -65,12 +65,14 @@ def authenticate_request(request):
 #LOGGING - Force flush to console
 
 def log_info(msg):
+    logger.info(msg)
     print(f"[INFO] {msg}", file=sys.stdout, flush=True)
     sys.stdout.flush()
 
 def log_error(msg):
-    print(f"[ERROR] {msg}", file=sys.stdout, flush=True)
-    sys.stdout.flush()
+    logger.error(msg)
+    print(f"[ERROR] {msg}", file=sys.stderr, flush=True)
+    sys.stderr.flush()
 
 
 ALLOWED_EXTENSIONS = {
@@ -209,12 +211,12 @@ def upload_file(request):
             content_type = file.content_type or ''
             
             # Determine resource type
-            if content_type.startswith('image/') or ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']:
+            if content_type.startswith('image/') or ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']:
                 resource_type = 'image'
-            elif content_type.startswith('video/') or ext in ['mp4', 'mov', 'avi', 'webm']:
+            elif content_type.startswith('video/') or ext in ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv']:
                 resource_type = 'video'
             else:
-                resource_type = 'auto'
+                resource_type = 'raw'
             
             log_info(f"📤 Extension: {ext}, Content-Type: {content_type}, Resource Type: {resource_type}")
             
