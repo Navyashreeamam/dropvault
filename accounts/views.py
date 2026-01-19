@@ -22,11 +22,6 @@ from rest_framework.authtoken.models import Token
 from .models import UserProfile
 from files.models import File
 
-from django.views.decorators.http import require_http_methods
-from django.db import transaction
-from django.utils import timezone
-from django.conf import settings
-
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
@@ -149,99 +144,6 @@ def otp_verify(request):
     return render(request, 'otp_verify.html')
 
 
-@csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_set_password(request):
-    """
-    Allow OAuth users to set a password for email+password login.
-    Can be called while user is logged in via OAuth.
-    """
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    # Must be authenticated (logged in via Google)
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'success': False,
-            'error': 'You must be logged in to set a password'
-        }, status=401)
-    
-    try:
-        data = json.loads(request.body)
-        new_password = data.get('password')
-        confirm_password = data.get('confirm_password')
-        
-        # Validate input
-        if not new_password or not confirm_password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password and confirmation are required'
-            }, status=400)
-        
-        if new_password != confirm_password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Passwords do not match'
-            }, status=400)
-        
-        if len(new_password) < 8:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password must be at least 8 characters long'
-            }, status=400)
-        
-        # Set the password
-        request.user.set_password(new_password)
-        request.user.save()
-        
-        # Update session to prevent logout
-        from django.contrib.auth import update_session_auth_hash
-        update_session_auth_hash(request, request.user)
-        
-        logger.info(f"✅ Password set for user: {request.user.email}")
-        
-        return JsonResponse({
-            'success': True,
-            'message': 'Password set successfully! You can now login with email and password.',
-            'has_password': True
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Set password error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({
-            'success': False,
-            'error': f'Failed to set password: {str(e)}'
-        }, status=500)
-
-
-@require_http_methods(["GET", "OPTIONS"])
-def api_check_user_password_status(request):
-    """
-    Check if the current logged-in user has a password set.
-    Used by frontend to show "Set Password" option.
-    """
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    if not request.user.is_authenticated:
-        return JsonResponse({
-            'success': False,
-            'error': 'Not authenticated'
-        }, status=401)
-    
-    return JsonResponse({
-        'success': True,
-        'has_password': request.user.has_usable_password(),
-        'email': request.user.email,
-        'username': request.user.username,
-        'login_methods': {
-            'google': True,  # If they're logged in, Google worked
-            'password': request.user.has_usable_password()
-        }
-    })
-
 @login_required
 def disable_mfa(request):
     if request.method == 'POST':
@@ -251,217 +153,85 @@ def disable_mfa(request):
 
 @csrf_exempt
 def api_signup(request):
-    """API endpoint for user signup - WITH DEBUG LOGGING"""
     if request.method == "OPTIONS":
         return JsonResponse({})
-    
     if request.method != "POST":
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # Don't strip
+        password = data.get('password', '')
         name = data.get('name', '').strip()
         
-        logger.info("=" * 60)
-        logger.info(f"📝 SIGNUP ATTEMPT")
-        logger.info(f"   Email: {email}")
-        logger.info(f"   Password length: {len(password)}")
-        logger.info(f"   Password (first 2 chars): {password[:2] if len(password) >= 2 else 'too short'}...")
-        logger.info("=" * 60)
-        
         if not email or not password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Email and password are required'
-            }, status=400)
-        
-        if len(password) < 8:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password must be at least 8 characters'
-            }, status=400)
+            return JsonResponse({'success': False, 'error': 'Email and password required'}, status=400)
         
         if User.objects.filter(email=email).exists():
-            return JsonResponse({
-                'success': False,
-                'error': 'An account with this email already exists'
-            }, status=400)
+            return JsonResponse({'success': False, 'error': 'Email exists'}, status=400)
         
-        # Create username
         username = email.split('@')[0]
         counter = 1
         while User.objects.filter(username=username).exists():
             username = f"{email.split('@')[0]}{counter}"
             counter += 1
         
-        # Parse name
-        name_parts = name.split() if name else [username]
-        first_name = name_parts[0] if name_parts else ''
-        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
-        
-        # Create user
-        logger.info(f"   Creating user with username: {username}")
-        
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name
+        user = User.objects.create(
+            username=username, email=email,
+            first_name=name.split()[0] if name else '',
+            password=make_password(password)
         )
-        
-        logger.info(f"   ✅ User created - ID: {user.id}")
-        logger.info(f"   Password hash: {user.password[:30]}...")
-        logger.info(f"   Has usable password: {user.has_usable_password()}")
-        
-        # Verify password was set correctly
-        from django.contrib.auth.hashers import check_password
-        password_check = check_password(password, user.password)
-        logger.info(f"   Password verification: {password_check}")
-        
         UserProfile.objects.get_or_create(user=user)
-        
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
-        logger.info(f"✅ Signup successful: {email}")
-        logger.info("=" * 60)
-        
         return JsonResponse({
-            'success': True,
-            'message': 'Account created successfully',
-            'token': token.key,
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'username': user.username,
-                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'has_password': True
-            }
+            'success': True, 'token': token.key,
+            'user': {'id': user.id, 'email': user.email, 'name': user.first_name}
         })
-        
-    except json.JSONDecodeError:
-        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        logger.error(f"❌ Signup error: {e}")
-        import traceback
-        traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 @csrf_exempt
 def api_login(request):
-    """API endpoint for user login - WITH DEBUG LOGGING"""
     if request.method == "OPTIONS":
         return JsonResponse({})
-    
     if request.method != "POST":
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # Don't strip
+        password = data.get('password', '')
         
-        logger.info("=" * 60)
-        logger.info(f"🔐 LOGIN ATTEMPT")
-        logger.info(f"   Email: {email}")
-        logger.info(f"   Password length: {len(password)}")
-        logger.info(f"   Password (first 2 chars): {password[:2] if len(password) >= 2 else 'too short'}...")
-        logger.info("=" * 60)
+        logger.info(f"🔐 Login: {email}")
         
-        if not email or not password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Email and password are required'
-            }, status=400)
-        
-        # Find user
         try:
             user = User.objects.get(email=email)
-            logger.info(f"   ✅ Found user: {user.username} (ID: {user.id})")
-            logger.info(f"   Has usable password: {user.has_usable_password()}")
-            logger.info(f"   Password hash starts with: {user.password[:30]}...")
         except User.DoesNotExist:
-            logger.warning(f"   ❌ User NOT FOUND: {email}")
-            # List all users for debugging
-            all_users = User.objects.all().values_list('email', flat=True)[:10]
-            logger.info(f"   Available users: {list(all_users)}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid email or password'
-            }, status=401)
-        
-        # Check if user is active
-        if not user.is_active:
-            logger.warning(f"   ❌ User is inactive")
-            return JsonResponse({
-                'success': False,
-                'error': 'Account is disabled'
-            }, status=403)
-        
-        # Check if OAuth-only user
-        if not user.has_usable_password():
-            logger.warning(f"   ⚠️ OAuth user without password")
-            return JsonResponse({
-                'success': False,
-                'error': 'This account uses Google Sign-In. Please sign in with Google.',
-                'oauth_account': True
-            }, status=401)
-        
-        # Try to authenticate
-        logger.info(f"   🔑 Attempting authentication...")
-        logger.info(f"   Using username: {user.username}")
+            return JsonResponse({'success': False, 'error': 'Invalid credentials'}, status=401)
         
         auth_user = authenticate(request, username=user.username, password=password)
-        
         if not auth_user:
-            logger.warning(f"   ❌ Authentication FAILED")
-            
-            # Debug: Try to check password manually
-            from django.contrib.auth.hashers import check_password
-            password_matches = check_password(password, user.password)
-            logger.info(f"   Manual password check: {password_matches}")
-            
-            # Check if password was set correctly
-            logger.info(f"   Password hash algorithm: {user.password.split('$')[0] if '$' in user.password else 'unknown'}")
-            
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid email or password'
-            }, status=401)
-        
-        # Success!
-        logger.info(f"   ✅ Authentication SUCCESSFUL")
+            return JsonResponse({'success': False, 'error': 'Invalid credentials'}, status=401)
         
         login(request, auth_user)
         token, _ = Token.objects.get_or_create(user=auth_user)
         
-        logger.info(f"✅ LOGIN SUCCESS: {email}")
-        logger.info("=" * 60)
+        logger.info(f"✅ Login OK: {email}")
         
         return JsonResponse({
             'success': True,
-            'message': 'Login successful',
             'token': token.key,
             'sessionid': request.session.session_key,
             'user': {
                 'id': auth_user.id,
                 'email': auth_user.email,
-                'username': auth_user.username,
                 'name': f"{auth_user.first_name} {auth_user.last_name}".strip() or auth_user.username,
-                'has_password': True
             }
         })
-        
-    except json.JSONDecodeError:
-        logger.error("❌ Invalid JSON in request body")
-        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        logger.error(f"❌ Login error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Login error: {e}")
         return JsonResponse({'success': False, 'error': 'Login failed'}, status=500)
 
 @csrf_exempt
@@ -548,39 +318,6 @@ def api_dashboard(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-@login_required
-@require_http_methods(["GET", "OPTIONS"])
-def api_user(request):
-    """Get current user details"""
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    user = request.user
-    
-    # Get user profile if exists
-    profile = None
-    try:
-        profile = user.profile
-    except:
-        # Create profile if missing
-        from accounts.models import UserProfile
-        profile = UserProfile.objects.create(user=user)
-    
-    return JsonResponse({
-        'success': True,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'email': user.email,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'has_password': user.has_usable_password(),  # ← ADD THIS
-            'storage_used': profile.storage_used if profile else 0,
-            'storage_limit': profile.storage_limit if profile else 1073741824,
-            'storage_percentage': profile.storage_percentage if profile else 0,
-        }
-    })
-
 @csrf_exempt
 def api_user_profile(request):
     if request.method == "OPTIONS":
@@ -604,7 +341,6 @@ def api_check_auth(request):
     if user:
         return JsonResponse({'authenticated': True, 'user': {'id': user.id, 'email': user.email}})
     return JsonResponse({'authenticated': False})
-
 
 @csrf_exempt
 def api_google_login(request):
@@ -704,19 +440,9 @@ def api_google_login(request):
             return JsonResponse({'success': False, 'error': 'No email from Google'}, status=400)
         
         # Find or create user
-        user_created = False
         try:
             user = User.objects.get(email=email)
             logger.info(f"   Found existing user")
-            
-            # ✅ FIX EXISTING OAUTH USERS - If they don't have a password, set one
-            if not user.has_usable_password():
-                import secrets
-                random_password = secrets.token_urlsafe(16)
-                user.set_password(random_password)
-                user.save()
-                logger.info(f"   ✅ Set random password for existing OAuth user")
-                
         except User.DoesNotExist:
             username = email.split('@')[0]
             counter = 1
@@ -725,23 +451,17 @@ def api_google_login(request):
                 counter += 1
             
             name_parts = name.split() if name else [username]
-            
-            # ✅ FIX: Create user WITH a random password (not unusable)
-            import secrets
-            random_password = secrets.token_urlsafe(16)
-            
-            user = User.objects.create_user(
+            user = User.objects.create(
                 username=username,
                 email=email,
-                password=random_password,  # ✅ Random password instead of unusable
                 first_name=name_parts[0] if name_parts else '',
                 last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
                 is_active=True
             )
-            
+            user.set_unusable_password()
+            user.save()
             UserProfile.objects.get_or_create(user=user)
-            user_created = True
-            logger.info(f"   Created new user with random password")
+            logger.info(f"   Created new user")
         
         # Login user
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -750,7 +470,7 @@ def api_google_login(request):
         logger.info(f"✅ Google OAuth SUCCESS: {email}")
         logger.info("=" * 50)
         
-        response_data = {
+        return JsonResponse({
             'success': True,
             'token': token.key,
             'sessionid': request.session.session_key,
@@ -758,16 +478,8 @@ def api_google_login(request):
                 'id': user.id,
                 'email': user.email,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'has_password': user.has_usable_password(),
             }
-        }
-        
-        # ✅ If user was just created, prompt them to set their own password
-        if user_created:
-            response_data['first_time'] = True
-            response_data['message'] = 'Welcome! Please set a password in Settings to enable email login.'
-        
-        return JsonResponse(response_data)
+        })
         
     except requests.Timeout:
         logger.error("❌ Google OAuth timeout")
@@ -780,6 +492,7 @@ def api_google_login(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
+
 
 @csrf_exempt
 def api_verify_email(request):
@@ -1008,17 +721,21 @@ def api_user_storage(request):
         return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
     
     try:
+        # Calculate storage from files
         from files.models import File
         from django.db.models import Sum
         
+        # Get total storage used (only non-deleted files)
         total_storage = File.objects.filter(
             user=user, 
             deleted=False
         ).aggregate(total=Sum('size'))['total'] or 0
         
+        # Get file count
         file_count = File.objects.filter(user=user, deleted=False).count()
         
-        storage_limit = 10 * 1024 * 1024 * 1024
+        # Storage limit (10GB default)
+        storage_limit = 10 * 1024 * 1024 * 1024  # 10GB in bytes
         storage_remaining = max(0, storage_limit - total_storage)
         storage_percentage = round((total_storage / storage_limit) * 100, 2) if storage_limit > 0 else 0
         
@@ -1044,184 +761,41 @@ def api_user_storage(request):
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
+# accounts/views.py - Add these at the END of the file
 
-@require_http_methods(["GET", "OPTIONS"])
-def api_debug_user(request):
-    """Debug endpoint to check user details"""
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    email = request.GET.get('email')
-    
-    if not email:
-        return JsonResponse({
-            'success': False,
-            'error': 'Email parameter required'
-        }, status=400)
-    
-    try:
-        user = User.objects.get(email=email)
-        
-        return JsonResponse({
-            'success': True,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'is_active': user.is_active,
-                'has_usable_password': user.has_usable_password(),
-                'password_field': user.password[:50] + '...' if user.password else 'None',
-                'date_joined': user.date_joined.isoformat(),
-                'last_login': user.last_login.isoformat() if user.last_login else None,
-            }
-        })
-        
-    except User.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'error': 'User not found'
-        }, status=404)
+# =============================================================================
+# API: PASSWORD MANAGEMENT
+# =============================================================================
 
 @csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_fix_oauth_user(request):
+def api_set_password(request):
     """
-    Temporary endpoint to fix OAuth users without passwords.
-    Admin/debug use only.
+    Allow OAuth users (Google sign-in) to set a password for email login.
+    This enables them to login with email+password later.
     """
     if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({
+            'success': False,
+            'error': 'You must be logged in to set a password'
+        }, status=401)
     
     try:
         data = json.loads(request.body)
-        email = data.get('email')
+        new_password = data.get('password', '').strip()
+        confirm_password = data.get('confirm_password', '').strip()
         
-        if not email:
+        # Validation
+        if not new_password or not confirm_password:
             return JsonResponse({
                 'success': False,
-                'error': 'Email required'
-            }, status=400)
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return JsonResponse({
-                'success': False,
-                'error': 'User not found'
-            }, status=404)
-        
-        # Check if user needs fixing
-        if user.has_usable_password():
-            return JsonResponse({
-                'success': True,
-                'message': 'User already has a password',
-                'fixed': False
-            })
-        
-        # Set random password
-        import secrets
-        random_password = secrets.token_urlsafe(16)
-        user.set_password(random_password)
-        user.save()
-        
-        logger.info(f"✅ Fixed OAuth user: {email}")
-        
-        return JsonResponse({
-            'success': True,
-            'message': f'Password set for {email}. User can now login with Google and set custom password.',
-            'fixed': True,
-            'has_password': user.has_usable_password()
-        })
-        
-    except Exception as e:
-        logger.error(f"Fix user error: {e}")
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-@csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_request_password_reset(request):
-    """
-    Allow OAuth users to request a password reset link.
-    Temporary solution for users who don't know their random password.
-    """
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    try:
-        data = json.loads(request.body)
-        email = data.get('email', '').strip().lower()
-        
-        if not email:
-            return JsonResponse({
-                'success': False,
-                'error': 'Email is required'
-            }, status=400)
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            # Don't reveal if email exists or not (security)
-            return JsonResponse({
-                'success': True,
-                'message': 'If this email exists, a password reset link has been sent.'
-            })
-        
-        # Generate temporary token
-        import secrets
-        from django.utils import timezone
-        from datetime import timedelta
-        
-        reset_token = secrets.token_urlsafe(32)
-        
-        # Store token in user profile
-        profile, created = UserProfile.objects.get_or_create(user=user)
-        profile.verification_token = reset_token  # Reuse this field
-        profile.save()
-        
-        # Create reset link
-        reset_link = f"{settings.SITE_URL}/reset-password/{reset_token}/"
-        
-        # Send email (or just return link for testing)
-        logger.info(f"📧 Password reset requested for: {email}")
-        logger.info(f"🔗 Reset link: {reset_link}")
-        
-        return JsonResponse({
-            'success': True,
-            'message': 'Password reset link generated',
-            'reset_link': reset_link,  # Remove this in production
-            'note': 'In production, this would be sent via email'
-        })
-        
-    except Exception as e:
-        logger.error(f"Password reset error: {e}")
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-@csrf_exempt
-@require_http_methods(["POST", "OPTIONS"])
-def api_reset_password(request):
-    """
-    Reset password using token from email.
-    """
-    if request.method == "OPTIONS":
-        return JsonResponse({}, status=200)
-    
-    try:
-        data = json.loads(request.body)
-        token = data.get('token')
-        new_password = data.get('password')
-        confirm_password = data.get('confirm_password')
-        
-        if not all([token, new_password, confirm_password]):
-            return JsonResponse({
-                'success': False,
-                'error': 'Token and passwords are required'
+                'error': 'Password and confirmation are required'
             }, status=400)
         
         if new_password != confirm_password:
@@ -1236,34 +810,280 @@ def api_reset_password(request):
                 'error': 'Password must be at least 8 characters'
             }, status=400)
         
-        # Find user with this token
-        try:
-            profile = UserProfile.objects.get(verification_token=token)
-            user = profile.user
-        except UserProfile.DoesNotExist:
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid or expired reset link'
-            }, status=400)
-        
-        # Set new password
+        # Set password
         user.set_password(new_password)
         user.save()
         
-        # Clear token
-        profile.verification_token = ''
-        profile.save()
+        # Update session to prevent logout
+        update_session_auth_hash(request, user)
         
-        logger.info(f"✅ Password reset successful for: {user.email}")
+        logger.info(f"✅ Password set for OAuth user: {user.email}")
         
         return JsonResponse({
             'success': True,
-            'message': 'Password reset successfully! You can now login with your new password.'
+            'message': 'Password set successfully! You can now login with email and password.',
+            'has_password': True
         })
         
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        logger.error(f"Password reset error: {e}")
+        logger.error(f"Set password error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_forgot_password(request):
+    """
+    Request password reset - sends email with reset link.
+    Always returns success (don't reveal if email exists).
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        
+        if not email:
+            return JsonResponse({
+                'success': False,
+                'error': 'Email is required'
+            }, status=400)
+        
+        # Always return success (don't reveal if email exists)
+        logger.info(f"🔐 Password reset requested for: {email}")
+        
+        try:
+            user = User.objects.get(email=email)
+            
+            # Generate reset token
+            import secrets
+            from django.core.cache import cache
+            from django.utils import timezone
+            
+            reset_token = secrets.token_urlsafe(32)
+            
+            # Store in cache with 1 hour expiry
+            cache_key = f'password_reset:{reset_token}'
+            cache.set(cache_key, {
+                'user_id': user.id,
+                'email': email,
+                'created': timezone.now().isoformat()
+            }, timeout=3600)  # 1 hour
+            
+            # Create reset link
+            from django.conf import settings
+            site_url = getattr(settings, 'SITE_URL', 'http://localhost:8000')
+            reset_link = f"{site_url}/reset-password?token={reset_token}"
+            
+            logger.info(f"📧 Password reset link created: {reset_link}")
+            
+            # TODO: Send email here
+            # send_password_reset_email(user.email, user.first_name, reset_link)
+            
+        except User.DoesNotExist:
+            logger.info(f"Password reset requested for non-existent email: {email}")
+            # Don't reveal that email doesn't exist
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'If an account exists with this email, a reset link has been sent.'
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}")
+        return JsonResponse({'success': False, 'error': 'Request failed'}, status=500)
+
+
+@csrf_exempt
+def api_request_password_reset(request):
+    """Alias for api_forgot_password"""
+    return api_forgot_password(request)
+
+
+@csrf_exempt
+def api_verify_reset_token(request):
+    """Verify if a password reset token is valid"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    token = request.GET.get('token', '')
+    
+    if not token:
+        return JsonResponse({'valid': False, 'error': 'Token required'}, status=400)
+    
+    from django.core.cache import cache
+    
+    cache_key = f'password_reset:{token}'
+    reset_data = cache.get(cache_key)
+    
+    if reset_data:
+        # Mask email for privacy
+        email = reset_data.get('email', '')
+        masked_email = email[:3] + '***@' + email.split('@')[1] if '@' in email else '***'
+        
+        return JsonResponse({
+            'valid': True,
+            'email': masked_email
+        })
+    
+    return JsonResponse({
+        'valid': False,
+        'error': 'Invalid or expired reset token'
+    })
+
+
+@csrf_exempt
+def api_reset_password(request):
+    """
+    Reset password using token from email.
+    Note: There are TWO api_reset_password endpoints in urls.py - this handles both.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        token = data.get('token', '').strip()
+        new_password = data.get('password', '').strip()
+        confirm_password = data.get('confirm_password', '').strip()
+        
+        # Validation
+        if not token:
+            return JsonResponse({
+                'success': False,
+                'error': 'Reset token is required'
+            }, status=400)
+        
+        if not new_password or len(new_password) < 8:
+            return JsonResponse({
+                'success': False,
+                'error': 'Password must be at least 8 characters'
+            }, status=400)
+        
+        if new_password != confirm_password:
+            return JsonResponse({
+                'success': False,
+                'error': 'Passwords do not match'
+            }, status=400)
+        
+        # Verify token
+        from django.core.cache import cache
+        
+        cache_key = f'password_reset:{token}'
+        reset_data = cache.get(cache_key)
+        
+        if not reset_data:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid or expired reset token. Please request a new one.'
+            }, status=400)
+        
+        # Get user and set password
+        try:
+            user = User.objects.get(id=reset_data['user_id'])
+            user.set_password(new_password)
+            user.save()
+            
+            # Delete token (can only be used once)
+            cache.delete(cache_key)
+            
+            # Delete all existing auth tokens (force re-login)
+            Token.objects.filter(user=user).delete()
+            
+            logger.info(f"✅ Password reset successful for: {user.email}")
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Password reset successfully! You can now login with your new password.'
+            })
+            
+        except User.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'error': 'User not found'
+            }, status=404)
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        logger.error(f"Reset password error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': 'Reset failed'}, status=500)
+
+
+@csrf_exempt
+def api_check_user_password_status(request):
+    """
+    Check if the current user has a password set.
+    Used to determine if OAuth-only user should set a password.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    user = authenticate_request(request)
+    
+    if not user:
         return JsonResponse({
             'success': False,
-            'error': str(e)
-        }, status=500)
+            'error': 'Not authenticated'
+        }, status=401)
+    
+    has_password = user.has_usable_password()
+    
+    return JsonResponse({
+        'success': True,
+        'has_password': has_password,
+        'is_oauth_user': not has_password,
+        'email': user.email,
+        'recommendation': 'Set a password to enable email login' if not has_password else 'Password already set'
+    })
+
+
+@csrf_exempt
+def api_debug_user(request):
+    """
+    Debug endpoint to check user details.
+    ⚠️ REMOVE IN PRODUCTION!
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    email = request.GET.get('email', '').strip().lower()
+    
+    if not email:
+        return JsonResponse({'error': 'Email parameter required'}, status=400)
+    
+    try:
+        user = User.objects.get(email=email)
+        
+        return JsonResponse({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_active': user.is_active,
+                'has_usable_password': user.has_usable_password(),
+                'date_joined': user.date_joined.isoformat(),
+                'last_login': user.last_login.isoformat() if user.last_login else None,
+            }
+        })
+        
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    

@@ -2,8 +2,6 @@
 from django.urls import path
 from . import views
 
-# These will be prefixed with /accounts/ from main urls
-# Only WEB PAGES here - APIs are in main urls.py
 urlpatterns = [
     # Auth Pages (HTML)
     path('signup/', views.signup_view, name='signup'),
