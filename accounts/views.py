@@ -5,6 +5,7 @@ import json
 import logging
 import requests
 import secrets
+import re
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -18,6 +19,8 @@ from django.contrib.auth import update_session_auth_hash
 from django.db import transaction
 from django.utils import timezone
 from django.core.cache import cache
+from django.core.mail import send_mail
+from django.conf import settings
 
 from rest_framework.authtoken.models import Token
 
@@ -26,7 +29,98 @@ from .models import UserProfile, Notification
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+# =============================================================================
+# EMAIL VALIDATION HELPERS
+# =============================================================================
 
+def is_valid_email_format(email):
+    """Check if email format is valid"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
+def is_disposable_email(email):
+    """Check if email is from a disposable email provider"""
+    disposable_domains = [
+        'tempmail.com', 'throwaway.email', 'guerrillamail.com', 
+        'mailinator.com', '10minutemail.com', 'temp-mail.org',
+        'fakeinbox.com', 'trashmail.com', 'yopmail.com',
+        'tempail.com', 'tmpmail.org', 'getnada.com',
+    ]
+    domain = email.split('@')[1].lower() if '@' in email else ''
+    return domain in disposable_domains
+
+
+def is_valid_email_domain(email):
+    """
+    Check if email domain exists (has MX records)
+    This is optional - requires DNS lookup
+    """
+    try:
+        import dns.resolver
+        domain = email.split('@')[1]
+        dns.resolver.resolve(domain, 'MX')
+        return True
+    except:
+        # If dns.resolver not installed or lookup fails, allow it
+        return True
+
+
+def validate_email_complete(email):
+    """
+    Complete email validation
+    Returns (is_valid, error_message)
+    """
+    if not email:
+        return False, "Email is required"
+    
+    email = email.strip().lower()
+    
+    if not is_valid_email_format(email):
+        return False, "Please enter a valid email address"
+    
+    if is_disposable_email(email):
+        return False, "Disposable email addresses are not allowed"
+    
+    # Optional: Check domain exists
+    # if not is_valid_email_domain(email):
+    #     return False, "Email domain does not exist"
+    
+    return True, None
+
+
+def send_verification_email(user, verification_link):
+    """Send verification email to user"""
+    try:
+        subject = "Verify your DropVault account"
+        message = f"""
+Hi {user.first_name or user.username},
+
+Welcome to DropVault! Please verify your email address by clicking the link below:
+
+{verification_link}
+
+This link will expire in 24 hours.
+
+If you didn't create an account, please ignore this email.
+
+Best regards,
+The DropVault Team
+        """
+        
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        logger.info(f"✅ Verification email sent to: {user.email}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to send verification email: {e}")
+        return False
+    
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
@@ -65,7 +159,7 @@ def format_file_size(size_bytes):
 
 
 # =============================================================================
-# WEB VIEWS (HTML)
+# WEB VIEWS
 # =============================================================================
 
 def home(request):
@@ -81,8 +175,14 @@ def signup_view(request):
         return render(request, 'signup.html')
     
     email = request.POST.get('email', '').strip().lower()
-    password = request.POST.get('password', '').strip()
+    password = request.POST.get('password', '')
     name = request.POST.get('name', '').strip()
+    
+    # Validate email
+    is_valid, error = validate_email_complete(email)
+    if not is_valid:
+        messages.error(request, error)
+        return render(request, 'signup.html')
     
     if User.objects.filter(email=email).exists():
         messages.error(request, "Email already exists.")
@@ -94,8 +194,12 @@ def signup_view(request):
         username = f"{email.split('@')[0]}{counter}"
         counter += 1
     
-    user = User.objects.create_user(username=username, email=email, password=password, first_name=name)
-    UserProfile.objects.get_or_create(user=user)
+    user = User(username=username, email=email, first_name=name, is_active=True)
+    user.set_password(password)
+    user.save()
+    
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     return redirect('dashboard')
 
@@ -107,13 +211,12 @@ def login_view(request):
         return render(request, 'login.html')
     
     email = request.POST.get('email', '').strip().lower()
-    password = request.POST.get('password', '').strip()
+    password = request.POST.get('password', '')
     
     try:
         user = User.objects.get(email=email)
-        auth_user = authenticate(request, username=user.username, password=password)
-        if auth_user:
-            login(request, auth_user)
+        if check_password(password, user.password):
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             return redirect('dashboard')
     except User.DoesNotExist:
         pass
@@ -135,16 +238,50 @@ def dashboard(request):
     return render(request, 'dashboard.html')
 
 
+def verify_email(request, token):
+    """Verify email from link"""
+    try:
+        profile = UserProfile.objects.get(verification_token=token)
+        
+        if profile.is_verification_token_valid(token):
+            profile.email_verified = True
+            profile.verification_token = ''
+            profile.save()
+            
+            messages.success(request, "Email verified successfully!")
+            login(request, profile.user, backend='django.contrib.auth.backends.ModelBackend')
+            return redirect('dashboard')
+        else:
+            messages.error(request, "Verification link has expired. Please request a new one.")
+            return redirect('home')
+            
+    except UserProfile.DoesNotExist:
+        messages.error(request, "Invalid verification link.")
+        return redirect('home')
+
+
+@login_required
+def verify_email_prompt(request):
+    return render(request, 'verify_prompt.html')
+
+
+@login_required
+def upload_test(request):
+    return render(request, 'upload_test.html')
+    
+
+
 # =============================================================================
-# API: SIGNUP - BULLETPROOF
+# API: SIGNUP - WITH EMAIL VALIDATION
 # =============================================================================
 
 @csrf_exempt
 def api_signup(request):
     """
-    API endpoint for user signup
-    ✅ Properly handles password hashing
-    ✅ Verified to work correctly
+    User signup with email validation
+    Options:
+    1. STRICT: Require email verification before dashboard access
+    2. LENIENT: Allow dashboard but show "verify email" prompt
     """
     if request.method == "OPTIONS":
         return JsonResponse({})
@@ -155,120 +292,132 @@ def api_signup(request):
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # Don't strip - preserve spaces
+        password = data.get('password', '')
         name = data.get('name', '').strip()
         
-        logger.info("=" * 70)
-        logger.info(f"📝 SIGNUP ATTEMPT: {email}")
-        logger.info(f"   Password length: {len(password)}")
-        logger.info("=" * 70)
+        logger.info("=" * 60)
+        logger.info(f"📝 SIGNUP: {email}")
         
-        # Validation
-        if not email or '@' not in email:
+        # ========================================
+        # STEP 1: VALIDATE EMAIL FORMAT
+        # ========================================
+        is_valid, error = validate_email_complete(email)
+        if not is_valid:
+            logger.warning(f"   ❌ Invalid email: {error}")
+            return JsonResponse({'success': False, 'error': error}, status=400)
+        
+        # ========================================
+        # STEP 2: VALIDATE PASSWORD
+        # ========================================
+        if not password or len(password) < 8:
             return JsonResponse({
-                'success': False,
-                'error': 'Please enter a valid email address'
+                'success': False, 
+                'error': 'Password must be at least 8 characters'
             }, status=400)
         
-        if not password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password is required'
-            }, status=400)
-        
-        if len(password) < 8:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password must be at least 8 characters long'
-            }, status=400)
-        
-        # Check if email exists
+        # ========================================
+        # STEP 3: CHECK IF EMAIL EXISTS
+        # ========================================
         if User.objects.filter(email=email).exists():
-            existing_user = User.objects.get(email=email)
+            existing = User.objects.get(email=email)
             
-            # Check if it's an OAuth user without password
-            if not existing_user.has_usable_password():
-                # Allow them to set password
-                existing_user.set_password(password)
-                existing_user.save()
+            # If OAuth user without password, let them set one
+            if not existing.has_usable_password():
+                existing.set_password(password)
+                existing.save()
                 
-                # Login and return
-                login(request, existing_user, backend='django.contrib.auth.backends.ModelBackend')
-                token, _ = Token.objects.get_or_create(user=existing_user)
+                login(request, existing, backend='django.contrib.auth.backends.ModelBackend')
+                token, _ = Token.objects.get_or_create(user=existing)
                 
-                logger.info(f"✅ Password set for existing OAuth user: {email}")
-                
+                logger.info(f"✅ Password set for OAuth user: {email}")
                 return JsonResponse({
                     'success': True,
-                    'message': 'Password set successfully! You can now login with email and password.',
+                    'message': 'Password set!',
                     'token': token.key,
                     'sessionid': request.session.session_key,
                     'user': {
-                        'id': existing_user.id,
-                        'email': existing_user.email,
-                        'username': existing_user.username,
-                        'name': f"{existing_user.first_name} {existing_user.last_name}".strip() or existing_user.username,
+                        'id': existing.id,
+                        'email': existing.email,
+                        'username': existing.username,
+                        'name': f"{existing.first_name} {existing.last_name}".strip() or existing.username,
+                        'email_verified': getattr(existing.profile, 'email_verified', False) if hasattr(existing, 'profile') else False,
                     }
                 })
             
             return JsonResponse({
-                'success': False,
+                'success': False, 
                 'error': 'An account with this email already exists. Please login instead.'
             }, status=400)
         
-        # Create username from email
+        # ========================================
+        # STEP 4: CREATE USER
+        # ========================================
         username = email.split('@')[0]
         counter = 1
-        base_username = username
+        base = username
         while User.objects.filter(username=username).exists():
-            username = f"{base_username}{counter}"
+            username = f"{base}{counter}"
             counter += 1
         
-        # Parse name
-        name_parts = name.split() if name else [username]
-        first_name = name_parts[0] if name_parts else ''
-        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+        parts = name.split() if name else [username]
+        first = parts[0] if parts else ''
+        last = ' '.join(parts[1:]) if len(parts) > 1 else ''
         
-        # Create user with transaction
         with transaction.atomic():
-            # Create user object
             user = User(
                 username=username,
                 email=email,
-                first_name=first_name,
-                last_name=last_name,
+                first_name=first,
+                last_name=last,
                 is_active=True
             )
-            
-            # Set password properly
             user.set_password(password)
             user.save()
             
             # Verify password was set correctly
             if not check_password(password, user.password):
-                logger.error(f"❌ Password verification failed for {email}")
                 user.delete()
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Account creation failed. Please try again.'
-                }, status=500)
+                logger.error(f"❌ Password verification failed: {email}")
+                return JsonResponse({'success': False, 'error': 'Signup failed'}, status=500)
             
             # Create profile
-            UserProfile.objects.get_or_create(user=user)
-            
-            logger.info(f"✅ User created: {email} (ID: {user.id})")
-            logger.info(f"   Password hash: {user.password[:30]}...")
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.signup_method = 'email'
+            profile.email_verified = False  # Not verified yet
+            profile.save()
         
-        # Login user
+        # ========================================
+        # STEP 5: SEND VERIFICATION EMAIL (Optional)
+        # ========================================
+        # Uncomment below to require email verification
+        """
+        verification_token = profile.generate_verification_token()
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://dropvault-frontend-1.onrender.com')
+        verification_link = f"{frontend_url}/verify-email?token={verification_token}"
+        
+        send_verification_email(user, verification_link)
+        
+        # Don't login - require verification first
+        return JsonResponse({
+            'success': True,
+            'message': 'Account created! Please check your email to verify your account.',
+            'requires_verification': True,
+            'email': email
+        })
+        """
+        
+        # ========================================
+        # STEP 6: LOGIN USER (Current behavior)
+        # ========================================
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
         logger.info(f"✅ SIGNUP SUCCESS: {email}")
-        logger.info("=" * 70)
+        logger.info("=" * 60)
         
         return JsonResponse({
             'success': True,
-            'message': 'Account created successfully',
+            'message': 'Account created successfully!',
             'token': token.key,
             'sessionid': request.session.session_key,
             'user': {
@@ -276,34 +425,143 @@ def api_signup(request):
                 'email': user.email,
                 'username': user.username,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email_verified': False,  # New accounts are unverified
             }
         })
         
     except json.JSONDecodeError:
-        logger.error("❌ Invalid JSON in signup request")
-        return JsonResponse({'success': False, 'error': 'Invalid request format'}, status=400)
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         logger.error(f"❌ Signup error: {e}")
         import traceback
         traceback.print_exc()
-        return JsonResponse({
-            'success': False,
-            'error': 'Signup failed. Please try again.'
-        }, status=500)
+        return JsonResponse({'success': False, 'error': 'Signup failed'}, status=500)
+
+# =============================================================================
+# API: RESEND VERIFICATION EMAIL
+# =============================================================================
+
+@csrf_exempt
+def api_resend_verification(request):
+    """Resend verification email"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    user = authenticate_request(request)
+    if not user:
+        return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
+    
+    try:
+        profile = user.profile
+        
+        if profile.email_verified:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Email is already verified'
+            }, status=400)
+        
+        # Check if we recently sent a verification email (rate limit)
+        if profile.verification_sent_at:
+            time_since = timezone.now() - profile.verification_sent_at
+            if time_since.total_seconds() < 60:  # 1 minute cooldown
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Please wait before requesting another verification email'
+                }, status=429)
+        
+        # Generate new token and send email
+        verification_token = profile.generate_verification_token()
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://dropvault-frontend-1.onrender.com')
+        verification_link = f"{frontend_url}/verify-email?token={verification_token}"
+        
+        if send_verification_email(user, verification_link):
+            return JsonResponse({
+                'success': True,
+                'message': 'Verification email sent!'
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to send email. Please try again.'
+            }, status=500)
+            
+    except Exception as e:
+        logger.error(f"Resend verification error: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
 # =============================================================================
-# API: LOGIN - BULLETPROOF
+# API: VERIFY EMAIL TOKEN
+# =============================================================================
+
+@csrf_exempt
+def api_verify_email_token(request):
+    """Verify email using token from link"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method == "GET":
+        token = request.GET.get('token', '')
+    else:
+        try:
+            data = json.loads(request.body)
+            token = data.get('token', '')
+        except:
+            token = ''
+    
+    if not token:
+        return JsonResponse({'success': False, 'error': 'Token required'}, status=400)
+    
+    try:
+        profile = UserProfile.objects.get(verification_token=token)
+        
+        if profile.is_verification_token_valid(token):
+            profile.email_verified = True
+            profile.verification_token = ''
+            profile.save()
+            
+            # Login the user
+            user = profile.user
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            auth_token, _ = Token.objects.get_or_create(user=user)
+            
+            logger.info(f"✅ Email verified: {user.email}")
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Email verified successfully!',
+                'token': auth_token.key,
+                'sessionid': request.session.session_key,
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'username': user.username,
+                    'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'email_verified': True,
+                }
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Verification link has expired. Please request a new one.'
+            }, status=400)
+            
+    except UserProfile.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid verification link'
+        }, status=400)
+
+# =============================================================================
+# API: LOGIN
 # =============================================================================
 
 @csrf_exempt
 def api_login(request):
-    """
-    API endpoint for user login
-    ✅ Handles email+password login
-    ✅ Handles OAuth users who want to set password
-    ✅ Proper error messages
-    """
+    """User login"""
     if request.method == "OPTIONS":
         return JsonResponse({})
     
@@ -313,107 +571,80 @@ def api_login(request):
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # Don't strip
+        password = data.get('password', '')
         
-        logger.info("=" * 70)
-        logger.info(f"🔐 LOGIN ATTEMPT: {email}")
-        logger.info(f"   Password length: {len(password)}")
-        logger.info("=" * 70)
+        logger.info("=" * 60)
+        logger.info(f"🔐 LOGIN: {email}")
         
-        # Validation
-        if not email or '@' not in email:
+        # Validate email format
+        if not email or not is_valid_email_format(email):
             return JsonResponse({
-                'success': False,
+                'success': False, 
                 'error': 'Please enter a valid email address'
             }, status=400)
         
         if not password:
-            return JsonResponse({
-                'success': False,
-                'error': 'Password is required'
-            }, status=400)
+            return JsonResponse({'success': False, 'error': 'Password required'}, status=400)
         
         # Find user
         try:
             user = User.objects.get(email=email)
-            logger.info(f"   ✅ User found: {user.username} (ID: {user.id})")
+            logger.info(f"   User found: {user.username}")
         except User.DoesNotExist:
-            logger.warning(f"   ❌ No user with email: {email}")
+            logger.warning(f"   ❌ User not found: {email}")
             return JsonResponse({
-                'success': False,
+                'success': False, 
                 'error': 'Invalid email or password'
             }, status=401)
         
-        # Check if account is active
         if not user.is_active:
-            logger.warning(f"   ❌ Inactive account: {email}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Your account has been disabled.'
-            }, status=403)
+            return JsonResponse({'success': False, 'error': 'Account disabled'}, status=403)
         
-        # Check if user has a password set
+        # Check if has password
         has_password = user.has_usable_password()
-        logger.info(f"   Has usable password: {has_password}")
         
         if not has_password:
-            # OAuth user without password - offer to set one
-            logger.info(f"   ⚠️ OAuth user, setting password: {email}")
-            
-            # Set the password they provided
+            # OAuth user - set password
             user.set_password(password)
             user.save()
             
-            # Verify it was set
-            if check_password(password, user.password):
-                # Login the user
-                login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-                token, _ = Token.objects.get_or_create(user=user)
-                
-                logger.info(f"✅ Password set and logged in: {email}")
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': 'Password set successfully! You can now login with email and password.',
-                    'token': token.key,
-                    'sessionid': request.session.session_key,
-                    'user': {
-                        'id': user.id,
-                        'email': user.email,
-                        'username': user.username,
-                        'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                    }
-                })
-            else:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Failed to set password. Please try again.'
-                }, status=500)
-        
-        # User has password - verify it
-        logger.info(f"   Verifying password...")
-        logger.info(f"   Hash preview: {user.password[:40]}...")
-        
-        # Check password
-        password_correct = check_password(password, user.password)
-        logger.info(f"   Password check result: {password_correct}")
-        
-        if not password_correct:
-            logger.warning(f"   ❌ Wrong password for {email}")
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            token, _ = Token.objects.get_or_create(user=user)
+            
+            profile = getattr(user, 'profile', None)
+            email_verified = profile.email_verified if profile else False
+            
             return JsonResponse({
-                'success': False,
+                'success': True,
+                'message': 'Password set!',
+                'token': token.key,
+                'sessionid': request.session.session_key,
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'username': user.username,
+                    'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                    'email_verified': email_verified,
+                }
+            })
+        
+        # Verify password
+        if not check_password(password, user.password):
+            logger.warning(f"   ❌ Wrong password")
+            return JsonResponse({
+                'success': False, 
                 'error': 'Invalid email or password'
             }, status=401)
         
-        # Password correct - login user
-        logger.info(f"   ✅ Password correct, logging in...")
-        
+        # Login
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
+        profile = getattr(user, 'profile', None)
+        email_verified = profile.email_verified if profile else False
+        
         logger.info(f"✅ LOGIN SUCCESS: {email}")
-        logger.info(f"   Token: {token.key[:15]}...")
-        logger.info("=" * 70)
+        logger.info("=" * 60)
         
         return JsonResponse({
             'success': True,
@@ -425,33 +656,27 @@ def api_login(request):
                 'email': user.email,
                 'username': user.username,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email_verified': email_verified,
             }
         })
         
     except json.JSONDecodeError:
-        logger.error("❌ Invalid JSON in login request")
-        return JsonResponse({'success': False, 'error': 'Invalid request format'}, status=400)
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
         import traceback
         traceback.print_exc()
-        return JsonResponse({
-            'success': False,
-            'error': 'Login failed. Please try again.'
-        }, status=500)
+        return JsonResponse({'success': False, 'error': 'Login failed'}, status=500)
+
 
 
 # =============================================================================
-# API: GOOGLE OAUTH LOGIN
+# API: GOOGLE OAUTH
 # =============================================================================
 
 @csrf_exempt
 def api_google_login(request):
-    """
-    Handle Google OAuth login
-    ✅ Creates account if not exists
-    ✅ Allows setting password later
-    """
+    """Google OAuth login - email is verified by Google"""
     if request.method == "OPTIONS":
         return JsonResponse({})
     
@@ -463,73 +688,47 @@ def api_google_login(request):
         code = data.get('code')
         
         if not code:
-            logger.error("❌ No authorization code provided")
-            return JsonResponse({'success': False, 'error': 'Authorization code required'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Code required'}, status=400)
         
-        # Get credentials
         client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
         client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '').strip()
         
-        logger.info("=" * 50)
-        logger.info("🔐 GOOGLE OAUTH REQUEST")
-        
         if not client_id or not client_secret:
-            logger.error("❌ Google OAuth credentials not configured!")
-            return JsonResponse({
-                'success': False, 
-                'error': 'Google OAuth is not configured.'
-            }, status=501)
+            return JsonResponse({'success': False, 'error': 'OAuth not configured'}, status=501)
         
-        # Determine redirect URI
         origin = request.META.get('HTTP_ORIGIN', '')
         if 'localhost' in origin or '127.0.0.1' in origin:
             redirect_uri = 'http://localhost:3000/google-callback'
         else:
             redirect_uri = 'https://dropvault-frontend-1.onrender.com/google-callback'
         
-        logger.info(f"   Redirect URI: {redirect_uri}")
+        resp = requests.post('https://oauth2.googleapis.com/token', data={
+            'code': code,
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code'
+        }, timeout=15)
         
-        # Exchange code for token
-        token_response = requests.post(
-            'https://oauth2.googleapis.com/token',
-            data={
-                'code': code,
-                'client_id': client_id,
-                'client_secret': client_secret,
-                'redirect_uri': redirect_uri,
-                'grant_type': 'authorization_code'
-            },
-            timeout=15
-        )
+        if resp.status_code != 200:
+            return JsonResponse({'success': False, 'error': 'Google auth failed'}, status=401)
         
-        if token_response.status_code != 200:
-            logger.error(f"❌ Token exchange failed: {token_response.text}")
-            return JsonResponse({
-                'success': False,
-                'error': 'Failed to authenticate with Google'
-            }, status=401)
-        
-        token_data = token_response.json()
-        access_token = token_data.get('access_token')
-        
+        access_token = resp.json().get('access_token')
         if not access_token:
             return JsonResponse({'success': False, 'error': 'No access token'}, status=401)
         
-        # Get user info
-        user_response = requests.get(
+        user_resp = requests.get(
             'https://www.googleapis.com/oauth2/v2/userinfo',
             headers={'Authorization': f'Bearer {access_token}'},
             timeout=10
         )
         
-        if user_response.status_code != 200:
+        if user_resp.status_code != 200:
             return JsonResponse({'success': False, 'error': 'Failed to get user info'}, status=401)
         
-        google_user = user_response.json()
-        email = google_user.get('email')
-        name = google_user.get('name', '')
-        
-        logger.info(f"   Google email: {email}")
+        google_data = user_resp.json()
+        email = google_data.get('email')
+        name = google_data.get('name', '')
         
         if not email:
             return JsonResponse({'success': False, 'error': 'No email from Google'}, status=400)
@@ -537,37 +736,36 @@ def api_google_login(request):
         # Find or create user
         try:
             user = User.objects.get(email=email)
-            logger.info(f"   Found existing user: {user.username}")
+            created = False
         except User.DoesNotExist:
-            # Create new user
             username = email.split('@')[0]
             counter = 1
             while User.objects.filter(username=username).exists():
                 username = f"{email.split('@')[0]}{counter}"
                 counter += 1
             
-            name_parts = name.split() if name else [username]
-            
+            parts = name.split() if name else [username]
             user = User.objects.create(
                 username=username,
                 email=email,
-                first_name=name_parts[0] if name_parts else '',
-                last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
+                first_name=parts[0] if parts else '',
+                last_name=' '.join(parts[1:]) if len(parts) > 1 else '',
                 is_active=True
             )
-            # Set unusable password - user can set one later
             user.set_unusable_password()
             user.save()
-            
-            UserProfile.objects.get_or_create(user=user)
-            logger.info(f"   Created new user: {username}")
+            created = True
         
-        # Login user
+        # Create/update profile - Google emails are verified!
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.email_verified = True  # Google verifies email
+        profile.signup_method = 'google'
+        profile.save()
+        
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
-        logger.info(f"✅ Google OAuth SUCCESS: {email}")
-        logger.info("=" * 50)
+        logger.info(f"✅ Google login: {email} (new={created})")
         
         return JsonResponse({
             'success': True,
@@ -579,20 +777,15 @@ def api_google_login(request):
                 'username': user.username,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
                 'has_password': user.has_usable_password(),
+                'email_verified': True,  # Google verified
             }
         })
         
-    except requests.Timeout:
-        logger.error("❌ Google OAuth timeout")
-        return JsonResponse({'success': False, 'error': 'Request timed out'}, status=504)
-    except json.JSONDecodeError:
-        return JsonResponse({'success': False, 'error': 'Invalid request'}, status=400)
     except Exception as e:
         logger.error(f"❌ Google OAuth error: {e}")
         import traceback
         traceback.print_exc()
-        return JsonResponse({'success': False, 'error': 'Google authentication failed'}, status=500)
-
+        return JsonResponse({'success': False, 'error': 'Google auth failed'}, status=500)
 
 # =============================================================================
 # API: LOGOUT
@@ -607,8 +800,7 @@ def api_logout(request):
     if user:
         Token.objects.filter(user=user).delete()
     logout(request)
-    return JsonResponse({'success': True, 'message': 'Logged out successfully'})
-
+    return JsonResponse({'success': True})
 
 # =============================================================================
 # API: DASHBOARD
@@ -620,37 +812,25 @@ def api_dashboard(request):
         return JsonResponse({})
     
     user = authenticate_request(request)
-    logger.info(f"📊 Dashboard - User: {user}")
-    
     if not user:
         return JsonResponse({'success': False, 'error': 'Not authenticated'}, status=401)
     
     try:
         from files.models import File, SharedLink
         
-        # Count files
         total_files = File.objects.filter(user=user, deleted=False).count()
         total_trash = File.objects.filter(user=user, deleted=True).count()
         
-        # Count active shared links
         shared_links = SharedLink.objects.filter(owner=user, is_active=True)
         shared_count = sum(1 for link in shared_links if not link.is_expired())
         
-        # Calculate storage
         total_storage = File.objects.filter(user=user, deleted=False).aggregate(total=Sum('size'))['total'] or 0
         
-        # Get recent files
         recent_files = File.objects.filter(user=user, deleted=False).order_by('-uploaded_at')[:5]
-        recent_data = [
-            {
-                'id': f.id,
-                'name': f.original_name,
-                'filename': f.original_name,
-                'size': f.size
-            } for f in recent_files
-        ]
+        recent_data = [{'id': f.id, 'name': f.original_name, 'size': f.size} for f in recent_files]
         
-        logger.info(f"✅ Dashboard OK: {user.email} - Files: {total_files}")
+        profile = getattr(user, 'profile', None)
+        email_verified = profile.email_verified if profile else False
         
         return JsonResponse({
             'success': True,
@@ -673,15 +853,12 @@ def api_dashboard(request):
                 'id': user.id,
                 'email': user.email,
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                'has_password': user.has_usable_password(),
+                'email_verified': email_verified,
             }
         })
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
-        import traceback
-        traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
 
 # =============================================================================
 # API: NOTIFICATIONS - FIXED
@@ -1327,86 +1504,3 @@ def disable_mfa(request):
         TOTPDevice.objects.filter(user=request.user).delete()
         return redirect('dashboard')
     return render(request, 'disable_mfa.html')
-
-# Add to accounts/views.py (at the end)
-
-@csrf_exempt
-def api_delete_all_users(request):
-    """Delete all users - for fresh start"""
-    if request.method == "OPTIONS":
-        return JsonResponse({})
-    
-    if request.method == "GET":
-        # Show what will be deleted
-        users = User.objects.filter(is_superuser=False)
-        return JsonResponse({
-            'message': 'Send POST with {"confirm": "DELETE_ALL"} to delete',
-            'user_count': users.count(),
-            'users': [{'id': u.id, 'email': u.email} for u in users]
-        })
-    
-    if request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            confirm = data.get('confirm', '')
-            
-            if confirm != 'DELETE_ALL':
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Send {"confirm": "DELETE_ALL"} to confirm'
-                }, status=400)
-            
-            # Get all non-superuser users
-            users = User.objects.filter(is_superuser=False)
-            user_ids = list(users.values_list('id', flat=True))
-            count = len(user_ids)
-            
-            if count == 0:
-                return JsonResponse({
-                    'success': True,
-                    'message': 'No users to delete'
-                })
-            
-            # Delete all related data
-            from files.models import File, SharedLink
-            
-            # Delete tokens
-            Token.objects.filter(user_id__in=user_ids).delete()
-            
-            # Delete files from storage too
-            files = File.objects.filter(user_id__in=user_ids)
-            for f in files:
-                try:
-                    if f.file and hasattr(f.file, 'delete'):
-                        f.file.delete(save=False)
-                except:
-                    pass
-            files.delete()
-            
-            # Delete shared links
-            SharedLink.objects.filter(owner_id__in=user_ids).delete()
-            
-            # Delete profiles
-            UserProfile.objects.filter(user_id__in=user_ids).delete()
-            
-            # Delete notifications
-            Notification.objects.filter(user_id__in=user_ids).delete()
-            
-            # Finally delete users
-            users.delete()
-            
-            logger.info(f"🗑️ DELETED ALL {count} USERS")
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'Deleted {count} users and all their data',
-                'deleted_count': count
-            })
-            
-        except Exception as e:
-            logger.error(f"Delete error: {e}")
-            import traceback
-            traceback.print_exc()
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-    
-    return JsonResponse({'error': 'Method not allowed'}, status=405)

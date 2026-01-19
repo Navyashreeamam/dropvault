@@ -1,51 +1,63 @@
-# accounts/models.py - COMPLETE FIXED VERSION
+# accounts/models.py
 
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from datetime import timedelta
+import secrets
 
 
 class UserProfile(models.Model):
     """Extended user profile"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    
+    # Email verification
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True, null=True)
+    verification_sent_at = models.DateTimeField(blank=True, null=True)
     
-    def __str__(self):
-        return f"{self.user.username} Profile"
+    # Signup method
+    signup_method = models.CharField(max_length=20, default='email')
     
-    @property
-    def storage_limit(self):
-        return 10737418240  # 10 GB
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def generate_verification_token(self):
+        """Generate a new verification token"""
+        self.verification_token = secrets.token_urlsafe(32)
+        self.verification_sent_at = timezone.now()
+        self.save()
+        return self.verification_token
+    
+    def is_verification_token_valid(self, token):
+        """Check if token is valid (not expired - 24 hours)"""
+        if not self.verification_token or self.verification_token != token:
+            return False
+        
+        if not self.verification_sent_at:
+            return False
+        
+        # Token expires after 24 hours
+        expiry = self.verification_sent_at + timedelta(hours=24)
+        return timezone.now() < expiry
     
     @property
     def storage_used(self):
         from files.models import File
         from django.db.models import Sum
-        total = File.objects.filter(user=self.user, deleted=False).aggregate(total=Sum('size'))['total'] or 0
-        return total
+        total = File.objects.filter(user=self.user, deleted=False).aggregate(total=Sum('size'))['total']
+        return total or 0
     
     @property
-    def storage_percentage(self):
-        if self.storage_limit == 0:
-            return 0
-        return round((self.storage_used / self.storage_limit) * 100, 2)
-
-
-class LoginAttempt(models.Model):
-    """Track login attempts for security"""
-    email = models.CharField(max_length=254)
-    ip_address = models.GenericIPAddressField()
-    success = models.BooleanField()
-    timestamp = models.DateTimeField(auto_now_add=True)
+    def storage_limit(self):
+        return 10 * 1024 * 1024 * 1024  # 10GB
     
-    class Meta:
-        ordering = ['-timestamp']
+    def __str__(self):
+        return f"{self.user.email} Profile"
 
 
 class Notification(models.Model):
-    """Notification system for user activities"""
+    """User notifications"""
     
     NOTIFICATION_TYPES = [
         ('FILE_UPLOAD', 'File Uploaded'),
@@ -62,23 +74,14 @@ class Notification(models.Model):
     notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
     title = models.CharField(max_length=200)
     message = models.TextField()
-    
     file_name = models.CharField(max_length=255, blank=True, null=True)
     file_id = models.IntegerField(blank=True, null=True)
-    
-    is_read = models.BooleanField(default=False)
+    is_read = models.BooleanField(default=False, db_index=True)
     read_at = models.DateTimeField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
         ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user', 'is_read']),
-            models.Index(fields=['user', 'created_at']),
-        ]
-    
-    def __str__(self):
-        return f"{self.notification_type}: {self.title}"
     
     def mark_as_read(self):
         if not self.is_read:
@@ -86,28 +89,18 @@ class Notification(models.Model):
             self.read_at = timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
     
-    def should_be_visible(self):
-        if not self.is_read:
-            return True
-        if self.read_at:
-            hours_since_read = (timezone.now() - self.read_at).total_seconds() / 3600
-            return hours_since_read <= 24
-        return False
-    
     @classmethod
     def get_visible_notifications(cls, user):
-        """Get all visible notifications - FIXED VERSION"""
-        unread = list(cls.objects.filter(user=user, is_read=False))
-        cutoff_time = timezone.now() - timedelta(hours=24)
-        recent_read = list(cls.objects.filter(user=user, is_read=True, read_at__gte=cutoff_time))
-        # ✅ FIX: Use + instead of | for list concatenation
-        return unread + recent_read
+        """Get visible notifications - FIXED"""
+        unread = list(cls.objects.filter(user=user, is_read=False).order_by('-created_at'))
+        cutoff = timezone.now() - timedelta(hours=24)
+        recent_read = list(cls.objects.filter(user=user, is_read=True, read_at__gte=cutoff).order_by('-created_at'))
+        return unread + recent_read  # Use + not |
     
     @classmethod
     def cleanup_old_notifications(cls, user):
-        """Delete old read notifications"""
-        cutoff_time = timezone.now() - timedelta(hours=24)
-        cls.objects.filter(user=user, is_read=True, read_at__lt=cutoff_time).delete()
+        cutoff = timezone.now() - timedelta(hours=24)
+        return cls.objects.filter(user=user, is_read=True, read_at__lt=cutoff).delete()[0]
     
     @classmethod
     def create_notification(cls, user, notification_type, title, message, file_name=None, file_id=None):

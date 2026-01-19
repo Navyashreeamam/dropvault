@@ -12,6 +12,10 @@ urlpatterns = [
     path('verify-email/<str:token>/', views.verify_email, name='verify_email'),
     path('verify-prompt/', views.verify_email_prompt, name='verify_email_prompt'),
     
+
+    path('api/verify-email-token/', views.api_verify_email_token, name='api_verify_email_token'),
+    path('api/resend-verification/', views.api_resend_verification, name='api_resend_verification'),
+
     # MFA
     path('setup-mfa/', views.setup_mfa, name='setup_mfa'),
     path('otp-verify/', views.otp_verify, name='otp_verify'),
@@ -21,7 +25,5 @@ urlpatterns = [
     path('test-email/', views.test_email, name='test_email'),
     path('upload-test/', views.upload_test, name='upload_test'),
 
-    # In accounts/urls.py
-    path('api/delete-all-users/', views.api_delete_all_users, name='api_delete_all_users'),
 ]
 
