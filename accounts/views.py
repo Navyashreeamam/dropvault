@@ -24,7 +24,7 @@ from django.conf import settings
 
 from rest_framework.authtoken.models import Token
 
-from .models import UserProfile, Notification
+from .models import UserProfile, Notification, LoginAttempt
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
