@@ -98,29 +98,27 @@ else:
 # ============================================================================
 # DATABASE CONFIGURATION
 # ============================================================================
-DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 if DATABASE_URL:
-    print("✅ Using DATABASE_URL from environment")
+    # Production: Use PostgreSQL from DATABASE_URL
     DATABASES = {
-        'default': dj_database_url.parse(
-            DATABASE_URL,
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
             conn_max_age=600,
             conn_health_checks=True,
         )
     }
+    print(f"✅ Using PostgreSQL from DATABASE_URL")
 else:
-    print("⚠️  Using default PostgreSQL settings")
+    # Development: Use SQLite
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'dropvault'),
-            'USER': os.environ.get('DB_USER', 'postgres'),
-            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-            'HOST': os.environ.get('DB_HOST', 'localhost'),
-            'PORT': os.environ.get('DB_PORT', '5432'),
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db_local.sqlite3',
         }
     }
+    print(f"✅ Using LOCAL SQLite database: {BASE_DIR / 'db_local.sqlite3'}")
 
 # ============================================================================
 # CLOUDINARY CONFIGURATION
