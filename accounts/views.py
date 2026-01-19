@@ -953,97 +953,6 @@ def api_user_storage(request):
 
 
 # ============================================================================
-# API: DEBUG ENDPOINTS (REMOVE IN PRODUCTION!)
-# ============================================================================
-
-@csrf_exempt
-def api_debug_user(request):
-    """Check user details"""
-    if request.method == "OPTIONS":
-        return JsonResponse({})
-    
-    email = request.GET.get('email', '').strip().lower()
-    if not email:
-        return JsonResponse({'error': 'Email required'}, status=400)
-    
-    try:
-        user = User.objects.get(email=email)
-        return JsonResponse({
-            'success': True,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'is_active': user.is_active,
-                'has_usable_password': user.has_usable_password(),
-            }
-        })
-    except User.DoesNotExist:
-        return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
-
-
-@csrf_exempt
-def api_debug_fix_password(request):
-    """Fix password for a user"""
-    if request.method == "OPTIONS":
-        return JsonResponse({})
-    
-    if request.method != "POST":
-        return JsonResponse({'error': 'POST required'}, status=405)
-    
-    try:
-        data = json.loads(request.body)
-        email = data.get('email', '').strip().lower()
-        new_password = data.get('new_password', '')
-        
-        if not email or not new_password:
-            return JsonResponse({'success': False, 'error': 'Email and new_password required'}, status=400)
-        
-        user = User.objects.get(email=email)
-        user.set_password(new_password)
-        user.save()
-        
-        verified = check_password(new_password, user.password)
-        logger.info(f"🔧 Password fixed for {email}, verified: {verified}")
-        
-        return JsonResponse({
-            'success': True,
-            'email': email,
-            'password_verified': verified,
-            'message': f'Password set successfully'
-        })
-    except User.DoesNotExist:
-        return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
-
-@csrf_exempt
-def api_debug_list_users(request):
-    """List all users"""
-    if request.method == "OPTIONS":
-        return JsonResponse({})
-    
-    users = User.objects.all().order_by('id')
-    user_list = []
-    
-    for user in users:
-        user_list.append({
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'has_password': user.has_usable_password(),
-            'is_active': user.is_active,
-        })
-    
-    return JsonResponse({
-        'success': True,
-        'count': len(user_list),
-        'users': user_list
-    })
-
-
-# ============================================================================
 # HELPERS
 # ============================================================================
 
@@ -1118,3 +1027,90 @@ def api_fix_all_oauth_users(request):
         
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+# ============================================================================
+# API: DEBUG ENDPOINTS (REMOVE IN PRODUCTION!)
+# ============================================================================
+
+@csrf_exempt
+def api_debug_user(request):
+    """Check user details - DEBUG"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    email = request.GET.get('email', '').strip().lower()
+    if not email:
+        return JsonResponse({'error': 'Email parameter required'}, status=400)
+    
+    try:
+        user = User.objects.get(email=email)
+        return JsonResponse({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_active': user.is_active,
+                'has_usable_password': user.has_usable_password(),
+            }
+        })
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
+
+@csrf_exempt
+def api_debug_fix_password(request):
+    """Fix password for a user - DEBUG"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    if request.method != "POST":
+        return JsonResponse({'error': 'POST required'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        new_password = data.get('new_password', '')
+        
+        if not email or not new_password:
+            return JsonResponse({'success': False, 'error': 'email and new_password required'}, status=400)
+        
+        user = User.objects.get(email=email)
+        user.set_password(new_password)
+        user.save()
+        
+        verified = check_password(new_password, user.password)
+        logger.info(f"🔧 Password fixed for {email}, verified: {verified}")
+        
+        return JsonResponse({
+            'success': True,
+            'email': email,
+            'password_verified': verified
+        })
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+@csrf_exempt
+def api_debug_list_users(request):
+    """List all users - DEBUG"""
+    if request.method == "OPTIONS":
+        return JsonResponse({})
+    
+    users = User.objects.all().order_by('id')
+    user_list = []
+    
+    for user in users:
+        user_list.append({
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'has_password': user.has_usable_password(),
+            'is_active': user.is_active,
+        })
+    
+    return JsonResponse({
+        'success': True,
+        'count': len(user_list),
+        'users': user_list
+    })
