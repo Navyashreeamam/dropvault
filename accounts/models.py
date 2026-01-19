@@ -11,18 +11,10 @@ class UserProfile(models.Model):
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True, null=True)
     storage_used = models.BigIntegerField(default=0)
-    storage_limit = models.BigIntegerField(default=10737418240)  # 10GB
+    storage_limit = models.BigIntegerField(default=10737418240)  # 10 GB
     
-
-    password_set_by_user = models.BooleanField(default=False)
-
-    signed_up_with_google = models.BooleanField(default=False)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     def __str__(self):
-        return f"Profile: {self.user.email}"
+        return f"{self.user.username} Profile"
     
     @property
     def storage_used_mb(self):
@@ -76,11 +68,9 @@ class Notification(models.Model):
     title = models.CharField(max_length=200)
     message = models.TextField()
     
-    # Related file info (optional)
     file_name = models.CharField(max_length=255, blank=True, null=True)
     file_id = models.IntegerField(blank=True, null=True)
     
-    # Status tracking
     is_read = models.BooleanField(default=False)
     read_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -96,60 +86,35 @@ class Notification(models.Model):
         return f"{self.notification_type}: {self.title} ({self.user.username})"
     
     def mark_as_read(self):
-        """Mark notification as read"""
         if not self.is_read:
             self.is_read = True
             self.read_at = timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
     
     def should_be_visible(self):
-        """Check if notification should be visible"""
         if not self.is_read:
             return True
-        
         if self.read_at:
             hours_since_read = (timezone.now() - self.read_at).total_seconds() / 3600
             return hours_since_read <= 24
-        
         return False
     
-    # ✅ ADD THIS METHOD (it was missing!)
     @classmethod
     def get_visible_notifications(cls, user):
-        """Get all visible notifications for a user"""
-        from django.utils import timezone
         from datetime import timedelta
-        
-        # Get unread notifications
         unread = cls.objects.filter(user=user, is_read=False)
-        
-        # Get read notifications from last 24 hours
         cutoff_time = timezone.now() - timedelta(hours=24)
-        recent_read = cls.objects.filter(
-            user=user,
-            is_read=True,
-            read_at__gte=cutoff_time
-        )
-        
-        # Combine and return as list
+        recent_read = cls.objects.filter(user=user, is_read=True, read_at__gte=cutoff_time)
         return list(unread) + list(recent_read)
     
     @classmethod
     def cleanup_old_notifications(cls, user):
-        """Delete old read notifications"""
-        from django.utils import timezone
         from datetime import timedelta
-        
         cutoff_time = timezone.now() - timedelta(hours=24)
-        cls.objects.filter(
-            user=user,
-            is_read=True,
-            read_at__lt=cutoff_time
-        ).delete()
+        cls.objects.filter(user=user, is_read=True, read_at__lt=cutoff_time).delete()
     
     @classmethod
     def create_notification(cls, user, notification_type, title, message, file_name=None, file_id=None):
-        """Helper to create a notification"""
         return cls.objects.create(
             user=user,
             notification_type=notification_type,
