@@ -47,7 +47,6 @@ urlpatterns = [
     path('api/forgot-password/', accounts_views.api_forgot_password, name='api_forgot_password'),
     path('api/reset-password/', accounts_views.api_reset_password, name='api_reset_password'),
     path('api/verify-reset-token/', accounts_views.api_verify_reset_token, name='api_verify_reset_token'),
-    path('api/check-password-status/', accounts_views.api_check_user_password_status, name='api_check_password_status'),
     
     # =============================================================================
     # USER PROFILE APIs
