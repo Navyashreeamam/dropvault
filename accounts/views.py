@@ -251,7 +251,7 @@ def disable_mfa(request):
 
 @csrf_exempt
 def api_signup(request):
-    """API endpoint for user signup"""
+    """API endpoint for user signup - WITH DEBUG LOGGING"""
     if request.method == "OPTIONS":
         return JsonResponse({})
     
@@ -261,10 +261,15 @@ def api_signup(request):
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # Don't strip - spaces might be intentional
+        password = data.get('password', '')  # Don't strip
         name = data.get('name', '').strip()
         
-        logger.info(f"📝 Signup attempt: {email}")
+        logger.info("=" * 60)
+        logger.info(f"📝 SIGNUP ATTEMPT")
+        logger.info(f"   Email: {email}")
+        logger.info(f"   Password length: {len(password)}")
+        logger.info(f"   Password (first 2 chars): {password[:2] if len(password) >= 2 else 'too short'}...")
+        logger.info("=" * 60)
         
         if not email or not password:
             return JsonResponse({
@@ -297,6 +302,8 @@ def api_signup(request):
         last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
         
         # Create user
+        logger.info(f"   Creating user with username: {username}")
+        
         user = User.objects.create_user(
             username=username,
             email=email,
@@ -305,12 +312,22 @@ def api_signup(request):
             last_name=last_name
         )
         
+        logger.info(f"   ✅ User created - ID: {user.id}")
+        logger.info(f"   Password hash: {user.password[:30]}...")
+        logger.info(f"   Has usable password: {user.has_usable_password()}")
+        
+        # Verify password was set correctly
+        from django.contrib.auth.hashers import check_password
+        password_check = check_password(password, user.password)
+        logger.info(f"   Password verification: {password_check}")
+        
         UserProfile.objects.get_or_create(user=user)
         
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, _ = Token.objects.get_or_create(user=user)
         
         logger.info(f"✅ Signup successful: {email}")
+        logger.info("=" * 60)
         
         return JsonResponse({
             'success': True,
@@ -333,10 +350,9 @@ def api_signup(request):
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-
 @csrf_exempt
 def api_login(request):
-    """API endpoint for user login"""
+    """API endpoint for user login - WITH DEBUG LOGGING"""
     if request.method == "OPTIONS":
         return JsonResponse({})
     
@@ -348,7 +364,12 @@ def api_login(request):
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')  # Don't strip
         
-        logger.info(f"🔐 Login attempt: {email}")
+        logger.info("=" * 60)
+        logger.info(f"🔐 LOGIN ATTEMPT")
+        logger.info(f"   Email: {email}")
+        logger.info(f"   Password length: {len(password)}")
+        logger.info(f"   Password (first 2 chars): {password[:2] if len(password) >= 2 else 'too short'}...")
+        logger.info("=" * 60)
         
         if not email or not password:
             return JsonResponse({
@@ -359,8 +380,14 @@ def api_login(request):
         # Find user
         try:
             user = User.objects.get(email=email)
+            logger.info(f"   ✅ Found user: {user.username} (ID: {user.id})")
+            logger.info(f"   Has usable password: {user.has_usable_password()}")
+            logger.info(f"   Password hash starts with: {user.password[:30]}...")
         except User.DoesNotExist:
-            logger.warning(f"   ❌ User not found: {email}")
+            logger.warning(f"   ❌ User NOT FOUND: {email}")
+            # List all users for debugging
+            all_users = User.objects.all().values_list('email', flat=True)[:10]
+            logger.info(f"   Available users: {list(all_users)}")
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
@@ -368,6 +395,7 @@ def api_login(request):
         
         # Check if user is active
         if not user.is_active:
+            logger.warning(f"   ❌ User is inactive")
             return JsonResponse({
                 'success': False,
                 'error': 'Account is disabled'
@@ -375,28 +403,43 @@ def api_login(request):
         
         # Check if OAuth-only user
         if not user.has_usable_password():
-            logger.warning(f"   ⚠️ OAuth user: {user.username}")
+            logger.warning(f"   ⚠️ OAuth user without password")
             return JsonResponse({
                 'success': False,
                 'error': 'This account uses Google Sign-In. Please sign in with Google.',
                 'oauth_account': True
             }, status=401)
         
-        # Authenticate
+        # Try to authenticate
+        logger.info(f"   🔑 Attempting authentication...")
+        logger.info(f"   Using username: {user.username}")
+        
         auth_user = authenticate(request, username=user.username, password=password)
         
         if not auth_user:
-            logger.warning(f"   ❌ Wrong password for: {user.username}")
+            logger.warning(f"   ❌ Authentication FAILED")
+            
+            # Debug: Try to check password manually
+            from django.contrib.auth.hashers import check_password
+            password_matches = check_password(password, user.password)
+            logger.info(f"   Manual password check: {password_matches}")
+            
+            # Check if password was set correctly
+            logger.info(f"   Password hash algorithm: {user.password.split('$')[0] if '$' in user.password else 'unknown'}")
+            
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
             }, status=401)
         
-        # Success
+        # Success!
+        logger.info(f"   ✅ Authentication SUCCESSFUL")
+        
         login(request, auth_user)
         token, _ = Token.objects.get_or_create(user=auth_user)
         
-        logger.info(f"✅ Login successful: {email}")
+        logger.info(f"✅ LOGIN SUCCESS: {email}")
+        logger.info("=" * 60)
         
         return JsonResponse({
             'success': True,
@@ -413,6 +456,7 @@ def api_login(request):
         })
         
     except json.JSONDecodeError:
+        logger.error("❌ Invalid JSON in request body")
         return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
