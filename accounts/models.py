@@ -11,27 +11,40 @@ class UserProfile(models.Model):
     """Extended user profile"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     
+    # Email verification
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True, null=True)
     verification_sent_at = models.DateTimeField(blank=True, null=True)
-    signup_method = models.CharField(max_length=20, default='email')
+    verification_token_expiry = models.DateTimeField(blank=True, null=True)
+    
+    # Signup tracking
+    signup_method = models.CharField(max_length=20, default='email')  # 'email' or 'google'
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     def generate_verification_token(self):
+        """Generate a new verification token with 24-hour expiry"""
         self.verification_token = secrets.token_urlsafe(32)
         self.verification_sent_at = timezone.now()
+        self.verification_token_expiry = timezone.now() + timedelta(hours=24)
         self.save()
         return self.verification_token
     
     def is_verification_token_valid(self, token):
+        """Check if the provided token is valid and not expired"""
         if not self.verification_token or self.verification_token != token:
             return False
-        if not self.verification_sent_at:
+        if not self.verification_token_expiry:
             return False
-        expiry = self.verification_sent_at + timedelta(hours=24)
-        return timezone.now() < expiry
+        return timezone.now() < self.verification_token_expiry
+    
+    def clear_verification_token(self):
+        """Clear the verification token after successful verification"""
+        self.verification_token = None
+        self.verification_sent_at = None
+        self.verification_token_expiry = None
+        self.save()
     
     @property
     def storage_used(self):
@@ -42,10 +55,11 @@ class UserProfile(models.Model):
     
     @property
     def storage_limit(self):
-        return 10 * 1024 * 1024 * 1024
+        return 10 * 1024 * 1024 * 1024  # 10GB
     
     def __str__(self):
-        return f"{self.user.email} Profile"
+        verified = "✓" if self.email_verified else "✗"
+        return f"{self.user.email} ({verified})"
     
     class Meta:
         verbose_name = "User Profile"
@@ -80,6 +94,7 @@ class Notification(models.Model):
         ('FILE_RESTORED', 'File Restored'),
         ('STORAGE_WARNING', 'Storage Warning'),
         ('SYSTEM', 'System Notification'),
+        ('EMAIL_VERIFIED', 'Email Verified'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')

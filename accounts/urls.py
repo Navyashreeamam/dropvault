@@ -8,11 +8,11 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     
-    # Email Verification
+    # Email Verification (Web)
     path('verify-email/<str:token>/', views.verify_email, name='verify_email'),
     path('verify-prompt/', views.verify_email_prompt, name='verify_email_prompt'),
     
-
+    # Email Verification (API)
     path('api/verify-email-token/', views.api_verify_email_token, name='api_verify_email_token'),
     path('api/resend-verification/', views.api_resend_verification, name='api_resend_verification'),
 
@@ -24,6 +24,4 @@ urlpatterns = [
     # Testing
     path('test-email/', views.test_email, name='test_email'),
     path('upload-test/', views.upload_test, name='upload_test'),
-
 ]
-
