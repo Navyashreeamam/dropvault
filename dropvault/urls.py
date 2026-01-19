@@ -106,7 +106,7 @@ urlpatterns = [
     path('api/debug/storage/', file_views.debug_storage_config, name='debug_storage'),
     path('api/test-cloudinary/', file_views.test_cloudinary_upload, name='test_cloudinary'),
     path('api/test-cloudinary-pdf/', file_views.test_cloudinary_pdf, name='test_cloudinary_pdf'),
-    
+    path('api/debug/fix-all-users/', accounts_views.api_fix_all_oauth_users, name='api_fix_all_users'),
     # =============================================================================
     # APP INCLUDES
     # =============================================================================
