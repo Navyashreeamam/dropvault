@@ -280,13 +280,12 @@ def api_signup(request):
             'error': 'Signup failed. Please try again.'
         }, status=500)
 
-# accounts/views.py - REPLACE api_login function
 
 @csrf_exempt
 def api_login(request):
     """
     API endpoint for user login - PRODUCTION READY
-    ✅ Handles email+password with detailed logging
+    Detects corrupted passwords and guides users to reset
     """
     if request.method == "OPTIONS":
         return JsonResponse({})
@@ -297,7 +296,7 @@ def api_login(request):
     try:
         data = json.loads(request.body)
         email = data.get('email', '').strip().lower()
-        password = data.get('password', '')  # ✅ Don't strip password!
+        password = data.get('password', '')
         
         logger.info("=" * 70)
         logger.info(f"🔐 LOGIN ATTEMPT: {email}")
@@ -336,17 +335,32 @@ def api_login(request):
                 'error': 'Your account has been disabled. Please contact support.'
             }, status=403)
         
-        # Check if user has password (OAuth users might not)
+        # ✅ CHECK FOR CORRUPTED PASSWORD
         has_password = user.has_usable_password()
         logger.info(f"   Has usable password: {has_password}")
         
         if not has_password:
-            logger.warning(f"   ⚠️ OAuth-only account: {email}")
-            return JsonResponse({
-                'success': False,
-                'error': 'This account uses Google Sign-In. Please use "Sign in with Google" or set a password in Settings.',
-                'oauth_account': True
-            }, status=401)
+            logger.warning(f"   ⚠️  Account needs password reset: {email}")
+            
+            # Check if it's OAuth-only or corrupted password
+            if user.password == '!':
+                # OAuth-only account
+                return JsonResponse({
+                    'success': False,
+                    'error': 'This account uses Google Sign-In. Please use "Sign in with Google" or reset your password to enable email login.',
+                    'oauth_account': True,
+                    'action': 'USE_GOOGLE_OR_RESET_PASSWORD'
+                }, status=401)
+            else:
+                # Corrupted password detected
+                logger.error(f"   🐛 CORRUPTED PASSWORD DETECTED for {email}")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Your password needs to be reset due to a system update. Please click "Forgot Password" to reset it.',
+                    'password_reset_required': True,
+                    'action': 'RESET_PASSWORD',
+                    'user_email': email
+                }, status=401)
         
         # Verify password
         from django.contrib.auth.hashers import check_password
@@ -357,6 +371,25 @@ def api_login(request):
         
         if not password_correct:
             logger.warning(f"   ❌ INCORRECT PASSWORD for {email}")
+            
+            # ✅ SPECIAL CHECK: If hash looks corrupted, suggest reset
+            if user.password.startswith('pbkdf2_'):
+                parts = user.password.split('$')
+                if len(parts) >= 4 and len(parts[-1]) > 60:
+                    logger.error(f"   🐛 DETECTED CORRUPTED HASH for {email}")
+                    
+                    # Mark as unusable
+                    user.set_unusable_password()
+                    user.save()
+                    
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Your password appears to be corrupted. Please use "Forgot Password" to reset it.',
+                        'password_reset_required': True,
+                        'action': 'RESET_PASSWORD',
+                        'user_email': email
+                    }, status=401)
+            
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid email or password'
@@ -371,9 +404,7 @@ def api_login(request):
         )
         
         if not auth_user:
-            # Password was correct but authenticate failed
             logger.error(f"   ⚠️ authenticate() returned None despite correct password")
-            logger.error(f"   Using user object directly")
             auth_user = user
         
         # Login user
