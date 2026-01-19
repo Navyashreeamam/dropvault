@@ -7,35 +7,25 @@ from datetime import timedelta
 import secrets
 
 
-# =============================================================================
-# USER PROFILE
-# =============================================================================
-
 class UserProfile(models.Model):
     """Extended user profile"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     
-    # Email verification
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True, null=True)
     verification_sent_at = models.DateTimeField(blank=True, null=True)
-    
-    # Signup method
     signup_method = models.CharField(max_length=20, default='email')
     
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     def generate_verification_token(self):
-        """Generate a new verification token"""
         self.verification_token = secrets.token_urlsafe(32)
         self.verification_sent_at = timezone.now()
         self.save()
         return self.verification_token
     
     def is_verification_token_valid(self, token):
-        """Check if token is valid (24 hours)"""
         if not self.verification_token or self.verification_token != token:
             return False
         if not self.verification_sent_at:
@@ -52,13 +42,7 @@ class UserProfile(models.Model):
     
     @property
     def storage_limit(self):
-        return 10 * 1024 * 1024 * 1024  # 10GB
-    
-    @property
-    def storage_percentage(self):
-        if self.storage_limit == 0:
-            return 0
-        return round((self.storage_used / self.storage_limit) * 100, 2)
+        return 10 * 1024 * 1024 * 1024
     
     def __str__(self):
         return f"{self.user.email} Profile"
@@ -67,10 +51,6 @@ class UserProfile(models.Model):
         verbose_name = "User Profile"
         verbose_name_plural = "User Profiles"
 
-
-# =============================================================================
-# LOGIN ATTEMPTS - Required by admin.py
-# =============================================================================
 
 class LoginAttempt(models.Model):
     """Track login attempts for security"""
@@ -82,19 +62,11 @@ class LoginAttempt(models.Model):
     
     class Meta:
         ordering = ['-timestamp']
-        indexes = [
-            models.Index(fields=['email', 'timestamp']),
-            models.Index(fields=['ip_address', 'timestamp']),
-        ]
     
     def __str__(self):
         status = 'Success' if self.success else 'Failed'
         return f"{self.email} - {status} - {self.timestamp}"
 
-
-# =============================================================================
-# NOTIFICATIONS
-# =============================================================================
 
 class Notification(models.Model):
     """User notifications"""
@@ -122,18 +94,11 @@ class Notification(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user', 'is_read']),
-            models.Index(fields=['user', 'created_at']),
-        ]
-        verbose_name = "Notification"
-        verbose_name_plural = "Notifications"
     
     def __str__(self):
         return f"{self.notification_type}: {self.title}"
     
     def mark_as_read(self):
-        """Mark notification as read"""
         if not self.is_read:
             self.is_read = True
             self.read_at = timezone.now()
@@ -141,34 +106,18 @@ class Notification(models.Model):
     
     @classmethod
     def get_visible_notifications(cls, user):
-        """Get visible notifications - FIXED (use + not |)"""
-        # Get unread
         unread = list(cls.objects.filter(user=user, is_read=False).order_by('-created_at'))
-        
-        # Get recently read (24 hours)
         cutoff = timezone.now() - timedelta(hours=24)
-        recent_read = list(cls.objects.filter(
-            user=user, 
-            is_read=True, 
-            read_at__gte=cutoff
-        ).order_by('-created_at'))
-        
-        # ✅ FIXED: Use + to combine lists, not |
+        recent_read = list(cls.objects.filter(user=user, is_read=True, read_at__gte=cutoff).order_by('-created_at'))
         return unread + recent_read
     
     @classmethod
     def cleanup_old_notifications(cls, user):
-        """Delete old read notifications"""
         cutoff = timezone.now() - timedelta(hours=24)
-        return cls.objects.filter(
-            user=user,
-            is_read=True,
-            read_at__lt=cutoff
-        ).delete()[0]
+        return cls.objects.filter(user=user, is_read=True, read_at__lt=cutoff).delete()[0]
     
     @classmethod
     def create_notification(cls, user, notification_type, title, message, file_name=None, file_id=None):
-        """Helper to create a notification"""
         return cls.objects.create(
             user=user,
             notification_type=notification_type,
