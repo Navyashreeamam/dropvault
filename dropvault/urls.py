@@ -1,5 +1,4 @@
 # dropvault/urls.py
-
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth.decorators import login_required
@@ -33,22 +32,27 @@ urlpatterns = [
     path('api/verify-email/', accounts_views.api_verify_email, name='api_verify_email'),
     path('api/auth/check/', accounts_views.api_check_auth, name='api_check_auth'),
     path('api/auth/google/', accounts_views.api_google_login, name='api_google_login'),
-    
-    # Password Management
+    path('api/set-password/', accounts_views.api_set_password, name='api_set_password'),
     path('api/forgot-password/', accounts_views.api_forgot_password, name='api_forgot_password'),
     path('api/reset-password/', accounts_views.api_reset_password, name='api_reset_password'),
     path('api/verify-reset-token/', accounts_views.api_verify_reset_token, name='api_verify_reset_token'),
-    path('api/set-password/', accounts_views.api_set_password, name='api_set_password'),
-    path('api/user/password/', accounts_views.api_change_password, name='api_change_password'),
+
+    path('api/debug-user/', accounts_views.api_debug_user, name='api_debug_user'),
+    path('api/check-password-status/', accounts_views.api_check_user_password_status, name='api_check_password_status'),
+    path('api/request-password-reset/', accounts_views.api_request_password_reset, name='api_request_password_reset'),
+    path('api/reset-password/', accounts_views.api_reset_password, name='api_reset_password'),
     
     # USER APIs
     path('api/user/', accounts_views.api_user_profile, name='api_user_profile'),
     path('api/dashboard/', accounts_views.api_dashboard, name='api_dashboard'),
     path('api/user/profile/', accounts_views.api_update_profile, name='api_update_profile'),
+    path('api/user/password/', accounts_views.api_change_password, name='api_change_password'),
     path('api/user/preferences/', accounts_views.api_preferences, name='api_preferences'),
     path('api/user/storage/', accounts_views.api_user_storage, name='api_user_storage'),
 
-    # NOTIFICATION APIs
+    
+
+    # NOTIFICATION APIs - NEW
     path('api/notifications/', accounts_views.api_notifications, name='api_notifications'),
     path('api/notifications/<int:notification_id>/read/', accounts_views.api_notification_read, name='api_notification_read'),
     path('api/notifications/read-all/', accounts_views.api_notifications_read_all, name='api_notifications_read_all'),
@@ -65,6 +69,7 @@ urlpatterns = [
     path('api/download/<int:file_id>/', file_views.download_file, name='api_download'),
     path('api/files/<int:file_id>/info/', file_views.debug_file_info, name='api_file_info'),
     path('api/debug/storage/', file_views.debug_storage_config, name='debug_storage'),
+
     path('api/trash/permanent/<int:file_id>/', file_views.permanent_delete, name='api_permanent_delete'),
     path('api/trash/empty/', file_views.empty_trash, name='api_empty_trash'),
 
@@ -73,12 +78,7 @@ urlpatterns = [
     path('api/share/<int:file_id>/email/', sharingviews.share_via_email, name='api_share_email'),
     path('api/shared/', file_views.get_shared_files, name='api_shared_files'),
 
-    # DEBUG APIs
-    path('api/debug/user/', accounts_views.api_debug_user, name='api_debug_user'),
-    path('api/debug/fix-password/', accounts_views.api_debug_fix_password, name='api_debug_fix_password'),
-    path('api/debug/list-users/', accounts_views.api_debug_list_users, name='api_debug_list_users'),
-
-    # WEB ROUTES
+    # Web routes
     path('files/', include('files.urls')),
     path('accounts/', include('accounts.urls')),
     
@@ -86,9 +86,9 @@ urlpatterns = [
     path('s/<slug:slug>/', sharingviews.shared_file_view, name='shared_file'),
     path('s/<slug:slug>/download/', sharingviews.download_shared_file, name='shared_file_download'),
 
-    # Test endpoints
     path('api/test-cloudinary/', file_views.test_cloudinary_upload, name='test_cloudinary'),
     path('api/test-cloudinary-pdf/', file_views.test_cloudinary_pdf, name='test_cloudinary_pdf'),
+
 ]
 
 if settings.DEBUG:

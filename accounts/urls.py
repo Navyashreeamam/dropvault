@@ -20,4 +20,8 @@ urlpatterns = [
     # Testing
     path('test-email/', views.test_email, name='test_email'),
     path('upload-test/', views.upload_test, name='upload_test'),
+
+    # In accounts/urls.py
+    path('api/delete-all-users/', views.api_delete_all_users, name='api_delete_all_users'),
 ]
+
