@@ -1,4 +1,5 @@
 # files/sharingviews.py
+
 import os
 import secrets
 import json
@@ -63,6 +64,21 @@ def get_site_url(request):
     return site_url
 
 
+def get_resource_type_from_filename(filename):
+    """Determine Cloudinary resource type from filename"""
+    ext = filename.split('.')[-1].lower() if '.' in filename else ''
+    
+    raster_image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico']
+    video_exts = ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv', 'wmv']
+    
+    if ext in raster_image_exts:
+        return 'image'
+    elif ext in video_exts:
+        return 'video'
+    else:
+        return 'raw'
+
+
 def is_cloudinary_storage():
     """Check if Cloudinary storage is enabled - SAFE VERSION"""
     try:
@@ -99,6 +115,23 @@ def create_user_notification(user, notification_type, title, message, file_name=
         log_info(f"🔔 Notification created: {notification_type}")
     except Exception as e:
         log_error(f"🔔 Failed to create notification: {e}")
+
+
+def format_file_size(size_bytes):
+    """Convert bytes to human-readable format"""
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    return f"{size:.2f} {units[unit_index]}"
+
 
 @csrf_exempt
 def create_share_link(request, file_id):
@@ -146,7 +179,6 @@ def create_share_link(request, file_id):
         
         log_info(f"🔗 ✅ Created: {share_url}")
         
-
         create_user_notification(
             user=request.user,
             notification_type='FILE_SHARE',
@@ -172,7 +204,7 @@ def create_share_link(request, file_id):
 
 @csrf_exempt
 def share_via_email(request, file_id):
-    """Share a file via email - NO RESTRICTION"""
+    """Share a file via email"""
     if request.method == "OPTIONS":
         return json_response({'status': 'ok'})
     
@@ -228,11 +260,6 @@ def share_via_email(request, file_id):
                 'error': 'Valid email address required'
             }, status=400)
         
-        # REMOVED: Email restriction code
-        # Now allows sending to ANY email address
-        # Note: Resend free tier may still limit emails to verified addresses
-        # To send to any email, verify a domain at https://resend.com/domains
-        
         # Create share link
         slug = generate_slug()
         SharedLink.objects.create(
@@ -261,23 +288,6 @@ def share_via_email(request, file_id):
         log_info(f"📧 Email result: success={success}, error={error_msg}")
         
         if success:
-            return json_response({
-                'status': 'success',
-                'share_url': share_url,
-                'email_sent': True,
-                'message': f'File shared! Email sent to {recipient_email}. Check spam folder.'
-            })
-        else:
-            # IMPROVED: Better error message for Resend test mode
-            error_detail = error_msg or 'Email sending failed'
-            
-            # Check if it's a Resend test mode error
-            if 'test' in error_detail.lower() or 'verify' in error_detail.lower():
-                error_detail = (
-                    f"Resend Test Mode: Can only send to verified email. "
-                    f"To send to {recipient_email}, verify a domain at resend.com/domains"
-                )
-            
             create_user_notification(
                 user=request.user,
                 notification_type='FILE_SHARE',
@@ -286,12 +296,19 @@ def share_via_email(request, file_id):
                 file_name=file_obj.original_name,
                 file_id=file_obj.id
             )
-
+            
+            return json_response({
+                'status': 'success',
+                'share_url': share_url,
+                'email_sent': True,
+                'message': f'File shared! Email sent to {recipient_email}.'
+            })
+        else:
             return json_response({
                 'status': 'partial',
                 'share_url': share_url,
                 'email_sent': False,
-                'error': error_detail,
+                'error': error_msg,
                 'message': f'Share link created! Copy this link: {share_url}',
                 'note': 'Email failed but you can share the link manually'
             }, status=200)
@@ -362,7 +379,10 @@ def shared_file_view(request, slug, action=None):
 
 @csrf_exempt
 def download_shared_file(request, slug):
-    """Download a shared file - Works with Cloudinary and local storage"""
+    """
+    Download a shared file - FIXED VERSION
+    Works with Cloudinary URLs stored in cloudinary_url field
+    """
     log_info("=" * 60)
     log_info(f"📥 DOWNLOAD SHARED FILE - Slug: {slug}")
     log_info("=" * 60)
@@ -401,26 +421,96 @@ def download_shared_file(request, slug):
             link.expires_at = timezone.now() + timedelta(hours=24)
             link.save(update_fields=['first_accessed_at', 'expires_at'])
         
-        # Check if file field exists
-        if not file_obj.file:
-            log_error(f"📥 No file attached to record")
-            return JsonResponse({'error': 'File not found'}, status=404)
+        download_url = None
         
-        # Get file URL
-        try:
-            file_url = file_obj.file.url
-            log_info(f"📥 File URL: {file_url}")
-        except Exception as e:
-            log_error(f"📥 Cannot get file URL: {e}")
-            return JsonResponse({'error': 'File URL not available'}, status=500)
+        if hasattr(file_obj, 'cloudinary_url') and file_obj.cloudinary_url:
+            download_url = file_obj.cloudinary_url
+            log_info(f"📥 Using cloudinary_url: {download_url}")
         
-        # CLOUDINARY / REMOTE URL - Stream the file
-        if file_url.startswith('http://') or file_url.startswith('https://'):
-            log_info(f"📥 Downloading from remote URL: {file_url}")
+        elif file_obj.file:
+            try:
+                download_url = file_obj.file.url
+                log_info(f"📥 Using file.url: {download_url}")
+            except Exception as e:
+                log_error(f"📥 Cannot get file.url: {e}")
+        
+        if not download_url:
+            log_error(f"📥 No download URL available for file ID: {file_obj.id}")
+            log_error(f"📥 cloudinary_url: {getattr(file_obj, 'cloudinary_url', 'N/A')}")
+            log_error(f"📥 file field: {file_obj.file if file_obj.file else 'None'}")
+            return JsonResponse({
+                'error': 'File not found',
+                'details': 'File data is not available. The file may need to be re-uploaded.'
+            }, status=404)
+        
+        log_info(f"📥 Download URL: {download_url}")
+        
+        if download_url.startswith('http://') or download_url.startswith('https://'):
+            log_info(f"📥 Downloading from remote URL...")
+            
+            resource_type = get_resource_type_from_filename(file_obj.original_name)
+            log_info(f"📥 Resource type: {resource_type}")
+            
+            # Try to generate signed URL for raw files
+            if resource_type == 'raw' and hasattr(file_obj, 'cloudinary_public_id') and file_obj.cloudinary_public_id:
+                try:
+                    import cloudinary
+                    import cloudinary.utils
+                    
+                    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
+                    api_key = os.environ.get('CLOUDINARY_API_KEY')
+                    api_secret = os.environ.get('CLOUDINARY_API_SECRET')
+                    
+                    if cloud_name and api_key and api_secret:
+                        cloudinary.config(
+                            cloud_name=cloud_name,
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            secure=True
+                        )
+                        
+                        # Try different resource types
+                        for res_type in ['raw', 'image', 'auto']:
+                            try:
+                                signed_url, _ = cloudinary.utils.cloudinary_url(
+                                    file_obj.cloudinary_public_id,
+                                    resource_type=res_type,
+                                    type='upload',
+                                    secure=True,
+                                    sign_url=True
+                                )
+                                
+                                # Test if URL works
+                                test_resp = requests.head(signed_url, timeout=5)
+                                if test_resp.status_code == 200:
+                                    download_url = signed_url
+                                    log_info(f"📥 Using signed URL (resource_type={res_type})")
+                                    break
+                            except Exception as e:
+                                log_info(f"📥 Signed URL attempt failed for {res_type}: {e}")
+                                continue
+                                
+                except Exception as e:
+                    log_error(f"📥 Could not generate signed URL: {e}")
+                    # Continue with original URL
             
             try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                
                 # Fetch file from Cloudinary
-                response = requests.get(file_url, stream=True, timeout=60)
+                response = requests.get(download_url, stream=True, timeout=60, headers=headers)
+                
+                log_info(f"📥 Response status: {response.status_code}")
+                
+                if response.status_code == 401:
+                    log_error("📥 401 Unauthorized from Cloudinary")
+                    # Try original URL as fallback
+                    if hasattr(file_obj, 'cloudinary_url') and download_url != file_obj.cloudinary_url:
+                        log_info("📥 Trying original cloudinary_url...")
+                        response = requests.get(file_obj.cloudinary_url, stream=True, timeout=60, headers=headers)
+                        log_info(f"📥 Fallback response: {response.status_code}")
                 
                 if response.status_code != 200:
                     log_error(f"📥 Remote fetch failed: HTTP {response.status_code}")
@@ -442,12 +532,19 @@ def download_shared_file(request, slug):
                     response.iter_content(chunk_size=8192),
                     content_type=content_type
                 )
-                django_response['Content-Disposition'] = f'attachment; filename="{file_obj.original_name}"'
+                
+                # Safe filename for Content-Disposition
+                safe_filename = file_obj.original_name.encode('ascii', 'ignore').decode('ascii')
+                if not safe_filename:
+                    safe_filename = f"file_{file_obj.id}"
+                
+                django_response['Content-Disposition'] = f'attachment; filename="{safe_filename}"'
                 
                 if 'Content-Length' in response.headers:
                     django_response['Content-Length'] = response.headers['Content-Length']
                 
                 log_info(f"📥 ✅ SUCCESS - Streaming: {file_obj.original_name}")
+                log_info("=" * 60)
                 return django_response
                 
             except requests.exceptions.Timeout:
@@ -457,7 +554,7 @@ def download_shared_file(request, slug):
                 log_error(f"📥 Request error: {e}")
                 return JsonResponse({'error': f'Download failed: {str(e)}'}, status=500)
         
-        # LOCAL STORAGE
+        # LOCAL STORAGE (fallback)
         else:
             log_info(f"📥 Using local storage")
             
@@ -521,23 +618,32 @@ def debug_shared_file(request, slug):
                 'id': file_obj.id,
                 'original_name': file_obj.original_name,
                 'file_field': str(file_obj.file) if file_obj.file else None,
+                'cloudinary_url': getattr(file_obj, 'cloudinary_url', None),
+                'cloudinary_public_id': getattr(file_obj, 'cloudinary_public_id', None),
                 'size': file_obj.size,
             },
             'storage': {
                 'cloudinary_enabled': is_cloudinary_storage(),
-                'cloudinary_cloud_name': settings.CLOUDINARY_STORAGE.get('CLOUD_NAME', 'Not set'),
             }
         }
         
         # Check file availability
-        if file_obj.file:
+        if hasattr(file_obj, 'cloudinary_url') and file_obj.cloudinary_url:
+            debug_info['file']['url'] = file_obj.cloudinary_url
+            debug_info['file']['url_source'] = 'cloudinary_url'
+            debug_info['file']['url_accessible'] = True
+        elif file_obj.file:
             try:
                 file_url = file_obj.file.url
                 debug_info['file']['url'] = file_url
+                debug_info['file']['url_source'] = 'file.url'
                 debug_info['file']['url_accessible'] = True
             except Exception as e:
                 debug_info['file']['url_error'] = str(e)
                 debug_info['file']['url_accessible'] = False
+        else:
+            debug_info['file']['url_accessible'] = False
+            debug_info['file']['url_error'] = 'No URL available'
         
         return JsonResponse(debug_info, status=200)
         
@@ -560,5 +666,4 @@ def test_email_config(request):
         'default_from_email': os.environ.get('DEFAULT_FROM_EMAIL', 'Not set'),
         'render_hostname': os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'Not set'),
         'cloudinary_enabled': is_cloudinary_storage(),
-        'note': 'Email restriction removed - Resend will handle test mode limits'
     })

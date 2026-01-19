@@ -10,13 +10,19 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True, null=True)
+    storage_used = models.BigIntegerField(default=0)
+    storage_limit = models.BigIntegerField(default=10737418240)  # 10GB
     
-    # Storage tracking
-    storage_used = models.BigIntegerField(default=0)  # in bytes
-    storage_limit = models.BigIntegerField(default=1073741824)  # 1GB default
+
+    password_set_by_user = models.BooleanField(default=False)
+
+    signed_up_with_google = models.BooleanField(default=False)
     
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     def __str__(self):
-        return f"{self.user.username} Profile"
+        return f"Profile: {self.user.email}"
     
     @property
     def storage_used_mb(self):
