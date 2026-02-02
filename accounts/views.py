@@ -37,6 +37,7 @@ User = get_user_model()
 # List of allowed frontend URLs
 ALLOWED_FRONTEND_URLS = [
     'https://dropvaultnew-frontend.onrender.com',
+    'https://dropvault-frontend.onrender.com',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:5173',
