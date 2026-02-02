@@ -45,7 +45,7 @@ ALLOWED_HOSTS = [
 # ✅ MULTIPLE FRONTEND URLS SUPPORT
 # ============================================================================
 
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://dropvaultnew-frontend.onrender.com').strip().strip("'\"")
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://dropvault-frontend.onrender.com').strip().strip("'\"")
 
 ALLOWED_FRONTEND_URLS = [
     'https://dropvault-frontend.onrender.com',
@@ -271,8 +271,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://dropvaultnew-frontend.onrender.com",
     "https://dropvault-frontend.onrender.com",
+    "https://dropvaultnew-frontend.onrender.com",
 ]
 
 # Remove duplicates and empty strings

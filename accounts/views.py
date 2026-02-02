@@ -218,6 +218,7 @@ def send_verification_email(user, verification_link):
 """
         
         plain_message = f"Verify your email: {verification_link}"
+        sender_email = os.environ.get('BREVO_SENDER_EMAIL', 'navyashreeamam@gmail.com')
         
         # Try Brevo API first
         if brevo_api_key:
@@ -230,7 +231,7 @@ def send_verification_email(user, verification_link):
                         'Content-Type': 'application/json'
                     },
                     json={
-                        'sender': {'name': 'DropVault', 'email': 'dropvault.dev@gmail.com'},
+                        'sender': {'name': 'DropVault', 'email': 'navyashreeamam@gmail.com'},
                         'to': [{'email': user.email, 'name': user.first_name or user.username}],
                         'subject': subject,
                         'htmlContent': html_message,
@@ -240,6 +241,7 @@ def send_verification_email(user, verification_link):
                 )
                 
                 print(f"📨 Brevo Response: {response.status_code}", flush=True)
+                print(f"📨 Brevo Response Body: {response.text}", flush=True)
                 
                 if response.status_code in [200, 201, 202]:
                     logger.info(f"✅ Email sent via Brevo to {user.email}")
@@ -334,7 +336,7 @@ def send_password_reset_email(user, reset_link):
                 'Content-Type': 'application/json'
             },
             json={
-                'sender': {'name': 'DropVault', 'email': 'dropvault.dev@gmail.com'},
+                'sender': {'name': 'DropVault', 'email': 'navyashreeamam@gmail.com'},
                 'to': [{'email': user.email, 'name': user.first_name or user.username}],
                 'subject': subject,
                 'htmlContent': html_message,
@@ -1053,7 +1055,9 @@ def api_google_login(request):
         
         if 'localhost' in origin or '127.0.0.1' in origin:
             redirect_uri = 'http://localhost:3000/google-callback'
-        elif 'dropvaultnew-frontend' in origin:
+        elif 'dropvault-frontend.onrender.com' in origin:
+            redirect_uri = 'https://dropvault-frontend.onrender.com/google-callback'
+        elif 'dropvaultnew-frontend.onrender.com' in origin:
             redirect_uri = 'https://dropvaultnew-frontend.onrender.com/google-callback'
         else:
             # Default to the primary frontend
