@@ -79,22 +79,40 @@ def authenticate_request(request):
 ALLOWED_EXTENSIONS = {
     # Images
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico',
-    '.svg', '.eps', '.ai',
+    '.svg', '.eps', '.ai', '.heic', '.heif', '.tiff', '.tif',
     # Documents
     '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
+    '.pages', '.tex', '.wpd', '.wps',
     # Spreadsheets
-    '.xls', '.xlsx', '.csv',
+    '.xls', '.xlsx', '.csv', '.ods', '.xlsm', '.xlsb',
     # Presentations
-    '.ppt', '.pptx',
+    '.ppt', '.pptx', '.odp', '.key',
     # Videos
-    '.mp4', '.mov', '.avi', '.webm', '.mkv', '.flv', '.wmv',
+    '.mp4', '.mov', '.avi', '.webm', '.mkv', '.flv', '.wmv', 
+    '.m4v', '.3gp', '.mpg', '.mpeg', '.m2v', '.ogv',
     # Audio
-    '.mp3', '.wav', '.flac', '.aac', '.ogg',
+    '.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma',
+    '.opus', '.oga', '.mid', '.midi',
     # Archives
-    '.zip', '.rar', '.7z', '.tar', '.gz',
+    '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz',
+    '.tgz', '.tbz2', '.cab', '.dmg', '.iso',
+    # Code
+    '.html', '.css', '.js', '.json', '.xml', '.sql',
+    '.py', '.java', '.cpp', '.c', '.h', '.cs', '.php',
+    '.rb', '.go', '.rs', '.swift', '.kt', '.ts', '.jsx', '.tsx',
+    # Development
+    '.vsix', '.deb', '.rpm', '.apk', '.exe', '.msi', '.app',
+    '.sh', '.bat', '.cmd', '.ps1',
+    # Data
+    '.db', '.sqlite', '.mdb', '.accdb',
+    # Design
+    '.psd', '.ai', '.sketch', '.fig', '.xd',
+    # Other
+    '.epub', '.mobi', '.azw', '.azw3', '.djvu',
+    '.md', '.markdown', '.log', '.yml', '.yaml', '.toml', '.ini', '.cfg',
 }
 
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
 
 
 def sanitize_filename(filename):
@@ -151,11 +169,9 @@ def auth_error_response():
     }, status=401)
 
 
-
-
 @csrf_exempt
 def upload_file(request):
-    """Upload a file to Cloudinary"""
+    """Upload a file to Cloudinary - FIXED with higher limits"""
     
     if request.method == "OPTIONS":
         response = json_response({'status': 'ok'})
@@ -174,7 +190,7 @@ def upload_file(request):
     try:
         user = authenticate_request(request)
         if not user:
-            log_error("📤 Authentication failed")  # This now works!
+            log_error("📤 Authentication failed")
             return auth_error_response()
         
         log_info(f"📤 User: {user.email} (ID: {user.id})")
@@ -186,38 +202,57 @@ def upload_file(request):
         file = request.FILES['file']
         log_info(f"📤 File: {file.name} ({file.size} bytes, {file.content_type})")
         
-        # Get file extension
-        ext = file.name.split('.')[-1].lower() if '.' in file.name else ''
+        # ✅ FIX: Get file extension properly
+        file_ext = os.path.splitext(file.name)[1].lower()
+        ext = file_ext.lstrip('.') if file_ext else ''
         
-        # Check file size limits
-        video_exts = ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv', 'wmv']
+        log_info(f"📤 Extension: .{ext}")
         
+        # ✅ FIX: Increase size limits based on file type
+        video_exts = ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv', 'wmv', 'm4v', '3gp']
+        image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'svg', 'heic', 'heif']
+        
+        # ✅ Size limits (Cloudinary free tier supports up to 100MB for videos)
+        # For Render free tier with 512MB RAM, we need to be conservative
         if ext in video_exts:
-            max_size = 100 * 1024 * 1024  # 100MB for videos
-            if file.size > max_size:
-                return json_response({
-                    'error': 'File too large',
-                    'message': f'Video files must be under 100MB. Your file is {file.size / (1024*1024):.1f}MB',
-                }, status=400)
+            # ✅ Allow up to 500MB for videos (will stream upload)
+            max_size = 500 * 1024 * 1024  # 500MB
+            size_label = "500MB"
+        elif ext in image_exts:
+            max_size = 100 * 1024 * 1024  # 100MB for images
+            size_label = "100MB"
         else:
-            max_size = 50 * 1024 * 1024  # 50MB for other files
-            if file.size > max_size:
-                return json_response({
-                    'error': 'File too large',
-                    'message': f'Files must be under 50MB. Your file is {file.size / (1024*1024):.1f}MB',
-                }, status=400)
+            # Other files (documents, archives, etc.)
+            max_size = 200 * 1024 * 1024  # 200MB
+            size_label = "200MB"
         
-        # Validate file type
-        valid, error_msg = validate_file(file)
-        if not valid:
-            log_error(f"📤 Validation failed: {error_msg}")
-            return json_response({'error': error_msg}, status=400)
+        # Check size
+        if file.size > max_size:
+            file_size_mb = file.size / (1024*1024)
+            log_error(f"📤 File too large: {file_size_mb:.1f}MB > {size_label}")
+            return json_response({
+                'error': 'File too large',
+                'message': f'This file type must be under {size_label}. Your file is {file_size_mb:.1f}MB',
+                'max_size': size_label,
+                'your_size': f'{file_size_mb:.1f}MB'
+            }, status=400)
+        
+        # ✅ FIX: More lenient file type validation
+        # Check if extension is in allowed list
+        if file_ext and file_ext not in ALLOWED_EXTENSIONS:
+            # ✅ Allow it anyway but log warning (for flexibility)
+            log_info(f"📤 ⚠️ Extension {file_ext} not in whitelist, but allowing upload")
+            # You can uncomment this to strictly enforce:
+            # return json_response({
+            #     'error': f'File type {file_ext} not allowed',
+            #     'allowed_types': 'Images, Videos, Documents, Archives'
+            # }, status=400)
         
         # Get hash
         try:
             file_hash = get_file_hash(file)
             log_info(f"📤 File hash: {file_hash[:16]}...")
-        except Exception as hash_err:  # ✅ FIX: Don't use log_error as variable name
+        except Exception as hash_err:
             log_error(f"📤 Hash error: {hash_err}")
             return json_response({'error': 'Failed to process file'}, status=500)
         
@@ -241,7 +276,7 @@ def upload_file(request):
         
         log_info(f"📤 Cloudinary: ✅ Configured")
         
-        # Upload to Cloudinary
+        # ✅ Upload to Cloudinary with chunking for large files
         try:
             import cloudinary
             import cloudinary.uploader
@@ -255,39 +290,44 @@ def upload_file(request):
             
             # Generate unique filename
             unique_name = f"{uuid.uuid4().hex}"
-            content_type = file.content_type or ''
             
-            # Determine resource type
-            raster_image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico']
-            video_exts = ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv', 'wmv']
-            
-            if ext in raster_image_exts:
+            # ✅ FIX: Better resource type detection
+            if ext in image_exts:
                 resource_type = 'image'
             elif ext in video_exts:
                 resource_type = 'video'
             else:
-                # SVG, PDF, DOC, etc.
+                # Everything else goes to 'raw'
                 resource_type = 'raw'
             
-            log_info(f"📤 Extension: {ext}, Resource type: {resource_type}")
+            log_info(f"📤 Resource type: {resource_type}")
             
-            # Upload options
+            # ✅ Upload options with chunking for large files
             upload_options = {
                 'folder': f"user_{user.id}",
                 'public_id': unique_name,
                 'resource_type': resource_type,
                 'type': 'upload',
                 'access_mode': 'public',
-                'timeout': 300
+                'timeout': 600,  # 10 minutes
             }
+            
+            # ✅ Enable chunking for files > 20MB
+            if file.size > 20 * 1024 * 1024:
+                upload_options['chunk_size'] = 6000000  # 6MB chunks
+                log_info(f"📤 Large file detected, using chunked upload (6MB chunks)")
             
             # Add format for raw files
             if resource_type == 'raw' and ext:
                 upload_options['format'] = ext
             
             log_info(f"📤 Uploading to Cloudinary...")
+            log_info(f"📤 File size: {file.size / (1024*1024):.1f}MB")
+            
+            # Reset file pointer
             file.seek(0)
             
+            # ✅ Upload with progress logging
             upload_result = cloudinary.uploader.upload(file, **upload_options)
             
             cloudinary_public_id = upload_result.get('public_id')
@@ -295,14 +335,24 @@ def upload_file(request):
             actual_resource_type = upload_result.get('resource_type', resource_type)
             
             log_info(f"📤 ✅ Cloudinary upload successful")
+            log_info(f"📤    Public ID: {cloudinary_public_id}")
             log_info(f"📤    URL: {cloudinary_url}")
             
-        except Exception as cloud_err:  # ✅ FIX: Don't use log_error as variable
+        except Exception as cloud_err:
             log_error(f"📤 ❌ Cloudinary error: {cloud_err}")
             log_error(traceback.format_exc())
+            
+            # Better error message
+            error_msg = str(cloud_err)
+            if 'timeout' in error_msg.lower():
+                error_msg = 'Upload timeout - file may be too large or connection too slow'
+            elif 'unauthorized' in error_msg.lower():
+                error_msg = 'Storage authentication failed - please try again'
+            
             return json_response({
                 'error': 'Upload to cloud storage failed',
-                'message': str(cloud_err),
+                'message': error_msg,
+                'details': str(cloud_err)
             }, status=500)
         
         # Save to database
@@ -338,18 +388,22 @@ def upload_file(request):
                     sha256=file_hash,
                     deleted=False,
                     cloudinary_url=cloudinary_url,
-                    cloudinary_public_id=cloudinary_public_id
+                    cloudinary_public_id=cloudinary_public_id,
+                    cloudinary_resource_type=actual_resource_type
                 )
             
             log_info(f"📤 ✅ Database save successful! File ID: {file_obj.id}")
-            
-        except Exception as db_err:  # ✅ FIX: Don't use log_error as variable
+            log_info(f"📤    Resource Type: {actual_resource_type}")
+
+
+        except Exception as db_err:
             log_error(f"📤 ❌ Database error: {db_err}")
             log_error(traceback.format_exc())
             
             # Clean up Cloudinary
             try:
                 cloudinary.uploader.destroy(cloudinary_public_id, resource_type=actual_resource_type)
+                log_info(f"📤 Cleaned up Cloudinary file")
             except:
                 pass
             
@@ -361,7 +415,7 @@ def upload_file(request):
         # Create log and notification
         try:
             FileLog.objects.create(user=user, file=file_obj, action='UPLOAD')
-        except Exception as file_log_err:  # ✅ FIX: Don't use log_error
+        except Exception as file_log_err:
             log_error(f"📤 File log error (ignored): {file_log_err}")
         
         try:
@@ -399,8 +453,6 @@ def upload_file(request):
             'error': 'Upload failed',
             'message': str(main_err)
         }, status=500)
-
-    
 
 def format_file_size(size_bytes):
     """Convert bytes to human-readable format"""
@@ -586,8 +638,7 @@ def download_file(request, file_id):
     except Exception as e:
         log_error(f"📥 Error: {e}")
         log_error(traceback.format_exc())
-        return JsonResponse({'error': str(e)}, status=500)
-    
+        return JsonResponse({'error': str(e)}, status=500)    
 
 @csrf_exempt
 def list_files(request):

@@ -1,4 +1,4 @@
-# accounts/models.py - COMPLETE FILE
+# accounts/models.py
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -23,11 +23,16 @@ class UserProfile(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    # ✅ ADD THIS PROPERTY
+    @property
+    def is_google_user(self):
+        """Check if user signed up with Google"""
+        return self.signup_method == 'google'
+    
     def generate_verification_token(self):
         """Generate a new verification token with 24-hour expiry"""
         self.verification_token = secrets.token_urlsafe(32)
         self.verification_sent_at = timezone.now()
-        self.verification_token_expiry = timezone.now() + timedelta(hours=24)
         self.save()
         return self.verification_token
     
@@ -35,15 +40,17 @@ class UserProfile(models.Model):
         """Check if the provided token is valid and not expired"""
         if not self.verification_token or self.verification_token != token:
             return False
-        if not self.verification_token_expiry:
+        if not self.verification_sent_at:
             return False
-        return timezone.now() < self.verification_token_expiry
+        
+        # Token expires after 24 hours
+        expiry = self.verification_sent_at + timedelta(hours=24)
+        return timezone.now() < expiry
     
     def clear_verification_token(self):
         """Clear the verification token after successful verification"""
         self.verification_token = None
         self.verification_sent_at = None
-        self.verification_token_expiry = None
         self.save()
     
     @property
@@ -59,12 +66,12 @@ class UserProfile(models.Model):
     
     def __str__(self):
         verified = "✓" if self.email_verified else "✗"
-        return f"{self.user.email} ({verified})"
+        method = f"[{self.signup_method}]" if self.signup_method else ""
+        return f"{self.user.email} {method} ({verified})"
     
     class Meta:
         verbose_name = "User Profile"
         verbose_name_plural = "User Profiles"
-
 
 class LoginAttempt(models.Model):
     """Track login attempts for security"""

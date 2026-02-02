@@ -28,10 +28,6 @@ IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 IS_RENDER = os.environ.get('RENDER') is not None
 IS_PRODUCTION = IS_RAILWAY or IS_RENDER
 
-print(f"✅ Starting DropVault settings...")
-print(f"IS_RAILWAY: {IS_RAILWAY}")
-print(f"IS_RENDER: {IS_RENDER}")
-
 # ============================================================================
 # SECURITY SETTINGS
 # ============================================================================
@@ -45,10 +41,28 @@ ALLOWED_HOSTS = [
     '.onrender.com',
 ]
 
-print(f"DEBUG: {DEBUG}")
-print(f"ALLOWED_HOSTS: {ALLOWED_HOSTS}")
+# ============================================================================
+# ✅ MULTIPLE FRONTEND URLS SUPPORT
+# ============================================================================
 
-# HTTPS Configuration for deployed environments
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://dropvaultnew-frontend.onrender.com').strip().strip("'\"")
+
+ALLOWED_FRONTEND_URLS = [
+    'https://dropvaultnew-frontend.onrender.com',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+
+if FRONTEND_URL and FRONTEND_URL not in ALLOWED_FRONTEND_URLS:
+    ALLOWED_FRONTEND_URLS.append(FRONTEND_URL)
+
+print(f"✅ Primary FRONTEND_URL: {FRONTEND_URL}")
+print(f"✅ All allowed frontends: {ALLOWED_FRONTEND_URLS}")
+
+SITE_URL = os.environ.get('SITE_URL', 'https://dropvault-2.onrender.com')
+
 if IS_RAILWAY or IS_RENDER:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     USE_X_FORWARDED_HOST = True
@@ -59,41 +73,35 @@ if IS_RAILWAY or IS_RENDER:
 # ============================================================================
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
 
+SITE_URL = os.environ.get('SITE_URL', 'https://dropvault-2.onrender.com').strip().strip("'\"")
+
 if IS_RENDER and RENDER_EXTERNAL_HOSTNAME:
     SITE_URL = f'https://{RENDER_EXTERNAL_HOSTNAME}'
 elif IS_RAILWAY:
     railway_url = os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
     if railway_url:
         SITE_URL = railway_url if railway_url.startswith('http') else f'https://{railway_url}'
-    else:
-        SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 else:
-    SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+    if not SITE_URL.startswith('http'):
+        SITE_URL = f'https://{SITE_URL}'
 
 print(f"✅ SITE_URL: {SITE_URL}")
 
 # ============================================================================
 # EMAIL CONFIGURATION
 # ============================================================================
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip()
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-if RESEND_API_KEY:
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'DropVault <onboarding@resend.dev>')
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-    print(f"✅ Email: Using Resend API")
-elif EMAIL_HOST_USER and EMAIL_HOST_PASSWORD and not IS_RENDER:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'DropVault <{EMAIL_HOST_USER}>')
-    print(f"✅ Email: Using SMTP (local dev)")
+if EMAIL_HOST_USER:
+    print(f"📧 Email configured: {EMAIL_HOST_USER}")
 else:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-    DEFAULT_FROM_EMAIL = 'DropVault <noreply@dropvault.com>'
-    print("⚠️ Email: Console only")
+    print("⚠️ Email NOT configured - EMAIL_HOST_USER is missing!")
 
 # ============================================================================
 # DATABASE CONFIGURATION
@@ -101,7 +109,6 @@ else:
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 if DATABASE_URL:
-    # Production: Use PostgreSQL from DATABASE_URL
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
@@ -109,16 +116,13 @@ if DATABASE_URL:
             conn_health_checks=True,
         )
     }
-    print(f"✅ Using PostgreSQL from DATABASE_URL")
 else:
-    # Development: Use SQLite
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db_local.sqlite3',
         }
     }
-    print(f"✅ Using LOCAL SQLite database: {BASE_DIR / 'db_local.sqlite3'}")
 
 # ============================================================================
 # CLOUDINARY CONFIGURATION
@@ -183,20 +187,15 @@ if CLOUDINARY_CONFIGURED:
 # ============================================================================
 STORAGES = {
     "default": {
-        # Media files use default Django storage (we'll handle Cloudinary manually)
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        # Static files use WhiteNoise (simple, no compression issues)
         "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },
 }
 
-# ✅ WhiteNoise settings
 WHITENOISE_MANIFEST_STRICT = False
 WHITENOISE_AUTOREFRESH = True
-
-
 
 # ============================================================================
 # ALLAUTH SETTINGS
@@ -233,7 +232,7 @@ AUTH_PASSWORD_VALIDATORS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Must be after SecurityMiddleware
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -257,25 +256,9 @@ SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'None'  # Required for cross-origin
-SESSION_COOKIE_SECURE = True      # Required when SameSite=None
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
 
-# ============================================================================
-# CSRF SETTINGS
-# ============================================================================
-CSRF_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_HTTPONLY = False  # Must be False so JS can read it
-
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://dropvault-2.onrender.com",
-    "https://dropvault-frontend-1.onrender.com",
-    "https://*.onrender.com",
-]
 
 # ============================================================================
 # CORS CONFIGURATION
@@ -287,9 +270,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://dropvault-frontend-1.onrender.com",
     "https://dropvaultnew-frontend.onrender.com",
 ]
+
+# Remove duplicates and empty strings
+CORS_ALLOWED_ORIGINS = list(set([url for url in CORS_ALLOWED_ORIGINS if url and url.startswith('http')]))
+
+print(f"✅ CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.onrender\.com$",
@@ -308,7 +295,8 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
     'x-session-id',
-    'cookie',
+    'cache-control',
+    'pragma',
 ]
 
 CORS_ALLOW_METHODS = [
@@ -324,9 +312,26 @@ CORS_EXPOSE_HEADERS = [
     'Content-Type',
     'X-CSRFToken',
     'Set-Cookie',
+    'Authorization',
 ]
 
 CORS_PREFLIGHT_MAX_AGE = 86400
+
+# ============================================================================
+# CSRF SETTINGS
+# ============================================================================
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = False  # Must be False so JS can read it
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://dropvaultnew-frontend.onrender.com",
+    "https://*.onrender.com",
+]
 
 # ============================================================================
 # STATIC FILES
@@ -350,16 +355,24 @@ if not CLOUDINARY_CONFIGURED:
 # UPLOAD LIMITS
 # ============================================================================
 
-DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
-# ✅ ADD: Request timeout settings
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# ✅ ADD: Keep connections alive
 CONN_MAX_AGE = 600  # 10 minutes
+
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
+
+FILE_UPLOAD_TEMP_DIR = '/tmp'
+
+STREAMING_CHUNK_SIZE = 8192
+
+CONN_MAX_AGE = 600
 
 # ============================================================================
 # SECURITY SETTINGS

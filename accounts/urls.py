@@ -11,6 +11,10 @@ urlpatterns = [
     # Email Verification (Web)
     path('verify-email/<str:token>/', views.verify_email, name='verify_email'),
     path('verify-prompt/', views.verify_email_prompt, name='verify_email_prompt'),
+
+    # Email Debug & Test (API)
+    path('api/debug-email-config/', views.api_debug_email_config, name='api_debug_email_config'),
+    path('api/test-email/', views.api_test_email, name='api_test_email'),
     
     # Email Verification (API)
     path('api/verify-email-token/', views.api_verify_email_token, name='api_verify_email_token'),
@@ -24,4 +28,6 @@ urlpatterns = [
     # Testing
     path('test-email/', views.test_email, name='test_email'),
     path('upload-test/', views.upload_test, name='upload_test'),
+
+    path('dashboard/', views.dashboard, name='dashboard'),
 ]
