@@ -1040,6 +1040,8 @@ def api_google_login(request):
         data = json.loads(request.body)
         code = data.get('code')
         
+        frontend_redirect_uri = data.get('redirect_uri')
+        
         if not code:
             return JsonResponse({'success': False, 'error': 'Authorization code required'}, status=400)
         
